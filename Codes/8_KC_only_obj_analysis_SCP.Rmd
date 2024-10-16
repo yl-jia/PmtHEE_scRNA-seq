@@ -1,0 +1,309 @@
+---
+title: "Reitermaier_2021"
+author: "Yelon"
+date: "2023-03-06"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+## SCP analysis [KC]
+
+-   R 4.4.1
+
+```{r}
+# BiocManager::install("Rsamtools")
+# devtools::install_github("zhanghao-njmu/SCP") # Install SCP under R4.4.1
+
+# options(reticulate.conda_binary = "/Users/yelon/miniconda3/bin/conda")
+# SCP::PrepareEnv()
+options(reticulate.conda_binary = "/Users/yelon/miniconda3/bin/conda",SCP_env_name = "SCP_env") ## need  specify the conda path first before run SCP
+library(SCP)
+library(Seurat)  # Seurat_4.4.0
+
+set.seed(805181) ## for repeatability of cluster mapping.
+```
+
+### 1- Prepare the seurat input [based on Seurat]
+
+```{r}
+## input is seurat
+load("R4_6.3_KC_only_processed.Rdata")
+KC_only_processed-> selected_kc
+```
+
+#### 1.1- UMAP plot
+
+```{r}
+## plot
+cluster_color= c(
+"BAS-I"="#6BD76BCC",
+"BAS-II"="#749B58CC"  ,
+"BAS-III"="#CDDEB7CC",
+"BAS-IV"="#466983CC" ,
+"BAS-V"="#5DB1DDCC",
+"SPN-I"= "#924822CC",
+"SPN-II"= "#D58F5CCC",
+"SPN-III"= "#E4AF69CC",
+"SPN-IV"= "#F0E685CC" ,
+"GRN-I"= "#AE1F63CC",
+"GRN-II"= "#802268CC",
+"GRN-III"= "#D595A7CC")
+
+
+p1<-CellDimPlot(selected_kc, 
+            palcolor = cluster_color, # customize the cell color
+            label = TRUE, # Add number
+            label_insitu = TRUE, # add cell type name
+            pt.size = 0.7, # define the point size
+            group.by = "cell_type_0.7", 
+            reduction = "UMAP")
+            #theme_use = "theme_blank")
+
+ggsave(p1,filename = "R8_KC_1_Cell_type_umap_plot.pdf",width = 9, height =6)
+```
+
+![](images/Screenshot%202024-10-16%20at%201.36.48%E2%80%AFAM.png)
+
+```{r}
+## plot
+study_color = c("FibHSE" = "#FF0000", 
+                "FsEpi" = "#0CA14A", 
+                "PmtHEE" = "blue")
+
+p1<-CellDimPlot(selected_kc, 
+            palcolor = study_color, # customize the cell color
+            # label = TRUE, # Add number
+            # label_insitu = TRUE, # add cell type name
+            pt.size = 0.7, # define the point size
+            group.by = "study", 
+            reduction = "UMAP")
+            #theme_use = "theme_blank")
+
+ggsave(p1,filename = "R8_KC_1_study_umap_plot.pdf",width = 9, height =6)
+```
+
+![](images/Screenshot%202024-10-16%20at%209.51.14%E2%80%AFAM.png){width="391"}
+
+```{r}
+p1<-CellDimPlot(selected_kc, 
+            palcolor = cluster_color, # customize the cell color
+            pt.size = 0.7, # define the point size
+            group.by = "cell_type_0.7", 
+            split.by = "study",
+            reduction = "UMAP",
+            cells.highlight = TRUE,
+            theme_use = "theme_blank",
+            legend.position = "none",
+            nrow = 3,
+            ncol = 1) +
+      theme(plot.title = element_text(size = 20))
+
+ggsave(p1,filename = "R8_KC_1_Cell_type_umap_plot_split.pdf",width = 9, height =18)
+```
+
+![](images/Screenshot%202024-10-16%20at%201.34.55%E2%80%AFAM.png){width="242"}
+
+```{r}
+p1<-CellDimPlot(selected_kc, 
+            palcolor = cluster_color, # customize the cell color
+            label = TRUE, # Add number
+            label_insitu = TRUE, # add cell type name
+            label.fg = "grey", ## change the label color
+            # alpha.highlight = 0.1, # the highlighr dot transparency
+            pt.alpha = 0.05, # dots transparency
+            # stroke.highlight = 0.1, # the border for highlight dots
+            # cells.highlight = FALSE,
+            pt.size = 0.7, # define the point size
+            group.by = "cell_type_0.7", 
+            reduction = "UMAP",
+            theme_use = "theme_blank",
+            legend.position = "none")
+
+ggsave(p1,filename = "R8_KC_1_Cell_type_umap_plot_transparency.pdf",width = 9, height =6)
+```
+
+![](images/Screenshot%202024-10-16%20at%209.43.27%E2%80%AFAM.png){width="315"}
+
+### 2- lineage analysis
+
+```{r}
+selected_kc-> sling_seurat # only for slingshot trajectory analysis.
+
+DefaultAssay(sling_seurat) # integrated
+
+## need add features from "integrated" to "RNA".
+## The function{RunSlingshor} will use only "RNA" assay to run the analysis.
+sling_seurat@assays$integrated@var.features -> sling_seurat@assays$RNA@var.features
+
+DefaultAssay(sling_seurat) <- "RNA"
+
+# Run the analysis.
+sling_seurat <- RunSlingshot(srt = sling_seurat, 
+                             group.by = "cell_type_0.7",
+                             reduction = "UMAP")
+```
+
+### 3- plot paths
+
+```{r}
+## check first the lineages
+## there are 4 paths 
+
+pdf("R8_3_KC_umap_paths_plot.pdf", width=20, height=10)
+FeatureDimPlot(sling_seurat, 
+               features = paste0("Lineage", 1:4), 
+               reduction = "UMAP", 
+               theme_use = "theme_blank")
+
+dev.off()
+```
+
+![](images/Screenshot%202024-10-15%20at%2011.20.29%E2%80%AFAM.png){width="402"}
+
+## SCP analysis [FsEpi]
+
+### 2- lineage analysis
+
+```{r}
+##> input is seurat list
+load("R6_5_seurat_KC_list.Rdata")
+kc_list$FsEpi -> selected_obj
+
+selected_obj-> sling_seurat # only for slingshot trajectory analysis.
+
+DefaultAssay(sling_seurat) # integrated
+
+## need add features from "integrated" to "RNA".
+## The function{RunSlingshor} will use only "RNA" assay to run the analysis.
+sling_seurat@assays$integrated@var.features -> sling_seurat@assays$RNA@var.features
+
+DefaultAssay(sling_seurat) <- "RNA"
+
+# Run the analysis.
+sling_seurat <- RunSlingshot(srt = sling_seurat, 
+                             group.by = "cell_type_0.7",
+                             reduction = "UMAP")
+```
+
+### 3- plot paths
+
+```{r}
+## check first the lineages
+## there are 4 paths 
+
+pdf("R8_3_FsEpi_umap_paths_plot.pdf", width=20, height=20)
+FeatureDimPlot(sling_seurat, 
+               features = paste0("Lineage", 1:5), 
+               reduction = "UMAP", 
+               theme_use = "theme_blank")
+
+dev.off()
+```
+
+![](images/Screenshot%202024-10-16%20at%202.38.04%E2%80%AFAM.png){width="331"}
+
+## SCP analysis [FibHSE]
+
+### 2- lineage analysis
+
+```{r}
+##> input is seurat list
+load("R6_5_seurat_KC_list.Rdata")
+
+kc_list$FibHSE -> selected_obj
+
+## remove SPN-I, SPN-II, SPN-III, SPN-IV.from FibHSE
+# Subset cells that are NOT in the specified cell types
+selected_id <- selected_obj@meta.data[!(selected_obj@meta.data$cell_type_0.7 %in% c("SPN-I", "SPN-II", "SPN-III", "SPN-IV")), ] # 1803 cells
+#> extract only selected cells
+new_selected_obj <- subset(selected_obj, cells=row.names(selected_id))
+
+#new obj
+
+new_selected_obj-> sling_seurat # only for slingshot trajectory analysis.
+
+DefaultAssay(sling_seurat) # integrated
+
+## need add features from "integrated" to "RNA".
+## The function{RunSlingshor} will use only "RNA" assay to run the analysis.
+sling_seurat@assays$integrated@var.features -> sling_seurat@assays$RNA@var.features
+
+DefaultAssay(sling_seurat) <- "RNA"
+
+# Run the analysis.
+sling_seurat <- RunSlingshot(srt = sling_seurat, 
+                             group.by = "cell_type_0.7",
+                             reduction = "UMAP")
+```
+
+### 3- plot paths
+
+```{r}
+## check first the lineages
+## there are 4 paths 
+
+pdf("R8_3_FibHSE_umap_paths_plot.pdf", width=15, height=10)
+FeatureDimPlot(sling_seurat, 
+               pt.size = 1,
+               features = paste0("Lineage", 1:2), 
+               reduction = "UMAP", 
+               theme_use = "theme_blank")
+
+dev.off()
+```
+
+![](images/Screenshot%202024-10-16%20at%202.55.24%E2%80%AFAM.png){width="345"}
+
+## SCP analysis [PmtHEE]
+
+### 2- lineage analysis
+
+```{r}
+##> input is seurat list
+load("R6_5_seurat_KC_list.Rdata")
+kc_list$PmtHEE -> selected_obj
+
+## remove SPN-I, SPN-II, SPN-III, SPN-IV.from FibHSE
+# Subset cells that are NOT in the specified cell types
+selected_id <- selected_obj@meta.data[!(selected_obj@meta.data$cell_type_0.7 %in% c("BAS-I", "BAS-II", "BAS-III", "BAS-IV")), ] # 4109 cells
+#> extract only selected cells
+new_selected_obj <- subset(selected_obj, cells=row.names(selected_id))
+
+#new obj
+
+new_selected_obj-> sling_seurat # only for slingshot trajectory analysis.
+
+DefaultAssay(sling_seurat) # integrated
+
+## need add features from "integrated" to "RNA".
+## The function{RunSlingshor} will use only "RNA" assay to run the analysis.
+sling_seurat@assays$integrated@var.features -> sling_seurat@assays$RNA@var.features
+
+DefaultAssay(sling_seurat) <- "RNA"
+
+# Run the analysis.
+sling_seurat <- RunSlingshot(srt = sling_seurat, 
+                             group.by = "cell_type_0.7",
+                             reduction = "UMAP",
+                             start= "BAS-V")
+```
+
+### 3- plot paths
+
+```{r}
+## check first the lineages
+## there are 4 paths 
+
+pdf("R8_3_PmtHEE_umap_paths_plot.pdf", width=20, height=10)
+FeatureDimPlot(sling_seurat, 
+               pt.size = 1,
+               features = paste0("Lineage", 1:3), 
+               reduction = "UMAP", 
+               theme_use = "theme_blank",
+               ncol = 2)
+
+dev.off()
+```
+
+![](images/Screenshot%202024-10-16%20at%203.14.08%E2%80%AFAM.png){width="325"}

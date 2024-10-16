@@ -1,0 +1,878 @@
+---
+title: "Reitermaier_2021"
+author: "Yelon"
+date: "2023-03-06"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r}
+library(Seurat)
+library(ggplot2)
+library(ggpubr)
+library(tidyverse)
+set.seed(805181) ## for repeatability of cluster mapping.
+```
+
+## 3_Cell type check [based on seurat_integrated]
+
+### 3.0 Define the first OCT-specific clusters
+
+```{r}
+load("1.2.4_seurat_integrated_diff_res_obj.Rdata")
+selected_inte_05_07_09-> selected_inte
+  
+library(dittoSeq)
+p1<-dittoBarPlot(selected_inte, 
+                 "study",  # stacks on bar
+                 group.by = "integrated_snn_res.0.7", # x-axis
+                 scale = "percent")+ 
+                scale_x_discrete(limits = c("0","1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17")) + # Adjust the x-axis order
+   scale_fill_manual(values = c("FibHSE" = "#FF0000", 
+                                "FsEpi" = "#0CA14A", 
+                                "PmtHEE" = "blue"))
+
+
+ggsave("R3_3.0_split_sample_cell_type_percent_ratio.pdf", plot = p1, width = 5, height =3)
+```
+
+![](images/Screenshot%202024-08-14%20at%202.55.21%E2%80%AFPM.png)
+
+```{r}
+library(dittoSeq)
+
+selected_inte_05_07_09-> selected_inte
+
+p1<-dittoBarPlot(selected_inte, 
+                 "study",  # stacks on bar
+                 group.by = "integrated_snn_res.0.7", # x-axis
+                 scale = "count")+   # Blue for Study3)
+                scale_x_discrete(limits = c("0","1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17")) + # Adjust the x-axis order
+   scale_fill_manual(values = c("FibHSE" = "#FF0000", 
+                                "FsEpi" = "#0CA14A", 
+                                "PmtHEE" = "blue"))
+
+
+ggsave("R3_3.0_split_sample_cell_type_number_ratio2.pdf", plot = p1, width = 5, height =3)
+
+```
+
+![](images/Screenshot%202024-08-14%20at%2012.35.42%E2%80%AFPM.png){width="346"}
+
+### [Highlight] seurat "study" in UMAP]
+
+```{r}
+## 3-column split
+p1<-DimPlot(selected_inte, 
+            reduction = "umap",
+            group.by = "integrated_snn_res.0.7",
+            label = T, 
+            pt.size = 0.3, 
+            split.by = "study",
+            ncol = 3)
+
+ggsave("R3_3.0_umap_integrated_study_split.pdf", 
+       plot = p1, width = 15, height = 5 )
+```
+
+![](images/Screenshot%202024-08-14%20at%2012.40.48%E2%80%AFPM.png)
+
+```{r}
+# plot
+library(tidyverse)
+library(patchwork)
+library(viridis)
+library(Seurat)
+library(scCustomize)
+library(qs)
+
+#  simply pull from seurat_object@active.ident slot 
+DefaultAssay(selected_inte)<- "RNA"
+Idents(selected_inte) <- 'study' # can be any col.
+
+p1<-Cluster_Highlight_Plot(seurat_object = selected_inte,
+                       cluster_name = c("FibHSE", "FsEpi","PmtHEE"),  # could >3
+                       highlight_color = c("#FF0000", "#0CA14A", "blue"))
+              
+
+p2<- Cluster_Highlight_Plot(seurat_object = selected_inte,
+                       cluster_name = c("FibHSE"),  # could >3
+                       highlight_color = c("#FF0000"))
+
+p3<- Cluster_Highlight_Plot(seurat_object = selected_inte,
+                       cluster_name = c("FsEpi"),  # could >3
+                       highlight_color = c("#0CA14A"))
+
+p4<- Cluster_Highlight_Plot(seurat_object = selected_inte,
+                       cluster_name = c("PmtHEE"),  # could >3
+                       highlight_color = c("blue"))
+
+p1234<- ggarrange(p1,p2,p3,p4,ncol = 4)
+
+ggsave(filename = "R3_3.0_highlight_FibHSE_FsEpi_PmtHEE_on_UMAP.pdf",
+       plot = p1234, 
+       width = 25 , height = 5)
+```
+
+![](images/Screenshot%202024-08-14%20at%203.26.33%E2%80%AFPM.png)
+
+### 3.1 [Basal markers] annotation
+
+```{r}
+DefaultAssay(selected_inte) <- "RNA"
+
+## recheck the basal marker by studies.
+known_marker_basal= c(
+  "MKI67", "CCNB1","PCNA",## Mitotic KC: [ Proliferating KC = Mitotic cells = proliferative stem cells]
+  "KRT14", "KRT5", "KRT15", "COL17A1") # Basal keratinocyte (BK) = Undifferentiated keratinocytes
+
+# plot
+p1<- FeaturePlot(selected_inte,
+            features = unique(known_marker_basal),
+            cols = colorRampPalette(c("blue","green","yellow","orange","red"))(100),
+            split.by = "study",
+            ncol = 5,
+            pt.size = 0.05,
+            min.cutoff = 'q2',
+            max.cutoff = 'q98')
+
+ggsave("R3_3.1_marker_gene_basal_integrated_split_study.pdf", 
+       plot = p1, 
+       width = 20, 
+       height =30 )
+```
+
+![](images/Screenshot%202024-08-14%20at%203.38.46%E2%80%AFPM.png){width="399"}
+
+-   Merged plot
+
+```{r}
+p1<- FeaturePlot(selected_inte,
+            features = unique(known_marker_basal),
+            cols = colorRampPalette(c("blue","green","yellow","orange","red"))(100),
+            ncol = 1,
+            pt.size = 0.05,
+            min.cutoff = 'q2',
+            max.cutoff = 'q98')
+
+ggsave("R3_3.1_marker_gene_basal_integrated.pdf", 
+       plot = p1, 
+       width = 7, 
+       height =30 ) 
+```
+
+![](images/Screenshot%202024-08-14%20at%203.45.22%E2%80%AFPM.png){width="97"}
+
+-   vlnplot
+
+```{r}
+Idents(selected_inte) <- "integrated_snn_res.0.7"
+## personalize the x-axis oeder
+selected_inte$integrated_snn_res.0.7 <- factor(x = selected_inte$integrated_snn_res.0.7, levels = c("0","1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17"))
+
+p1 <- VlnPlot(selected_inte, features= known_marker_basal,
+              group.by="integrated_snn_res.0.7",
+              stack = T, 
+              sort = F, 
+              flip = T, 
+              fill.by = "ident")+  ## using "new_7_CT" for clor filling 
+  # the order of color very important for legend, legend follows only the color order without name.
+theme(axis.text = element_text(size = 10)) + 
+theme(text = element_text(size = 10))+ 
+theme(legend.position = "right")+ xlab("")+
+stat_summary(fun.y = median, geom='point',size= 5, colour = "black", shape = 95)+
+  NoLegend()
+
+ggsave("R3_3.1_Vlnplot_basal_genens_Seurat.pdf", plot = p1, width = 5 , height =3)
+```
+
+![](images/Screenshot%202024-08-14%20at%203.59.39%E2%80%AFPM.png){width="342"}
+
+### 3.2 [Suprabasal markers] annotation
+
+```{r}
+
+DefaultAssay(selected_inte) <- "RNA"
+
+# plot
+p1<- FeaturePlot(selected_inte,
+            features = unique(known_marker_suprabasal),
+            cols = colorRampPalette(c("blue","green","yellow","orange","red"))(100),
+            split.by = "study",
+            ncol = 3,
+            pt.size = 0.05,
+            min.cutoff = 'q2',
+            max.cutoff = 'q98')
+
+ggsave("R3_3.2_marker_gene_suprabasal_integrated_split_study.pdf", 
+       plot = p1, 
+       width = 15, 
+       height =20)
+```
+
+![](images/Screenshot%202024-08-14%20at%204.32.04%E2%80%AFPM.png){width="357"}
+
+```{r}
+known_marker_suprabasal<- c(
+  "KRT10","KRT1","DSG1", # ## Spinous KC [stratum spinosum-layer]
+  "FLG", "SPINK5") ### Granular KC
+  
+p1<- FeaturePlot(selected_inte,
+            features = unique(known_marker_suprabasal),
+            cols = colorRampPalette(c("blue","green","yellow","orange","red"))(100),
+            ncol = 1,
+            pt.size = 0.05,
+            min.cutoff = 'q2',
+            max.cutoff = 'q98')
+
+ggsave("R3_3.2_marker_gene_suprabasal_integrated.pdf", 
+       plot = p1, 
+       width = 5, 
+       height =20 )  
+```
+
+![](images/Screenshot%202024-08-14%20at%204.35.47%E2%80%AFPM.png){width="153"}
+
+```{r}
+Idents(selected_inte) <- "integrated_snn_res.0.7"
+## personalize the x-axis oeder
+selected_inte$integrated_snn_res.0.7 <- factor(x = selected_inte$integrated_snn_res.0.7, levels = c("0","1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17"))
+
+p1 <- VlnPlot(selected_inte, features= known_marker_suprabasal,
+              group.by="integrated_snn_res.0.7",
+              stack = T, 
+              sort = F, 
+              flip = T, 
+              fill.by = "ident")+  ## using "new_7_CT" for clor filling 
+  # the order of color very important for legend, legend follows only the color order without name.
+theme(axis.text = element_text(size = 10)) + 
+theme(text = element_text(size = 10))+ 
+theme(legend.position = "right")+ xlab("")+
+stat_summary(fun.y = median, geom='point',size= 5, colour = "black", shape = 95)+
+  NoLegend()
+
+ggsave("R3_3.2_Vlnplot_suprabasal_genens_Seurat.pdf", plot = p1, width = 5 , height =2)
+```
+
+![](images/Screenshot%202024-08-14%20at%204.42.12%E2%80%AFPM.png)
+
+### 3.3 [Other markers] annotation
+
+```{r}
+DefaultAssay(selected_inte) <- "RNA"
+
+known_marker_others<- c(
+  "KRT8","KRT18", # Merkle cells 
+  "KRT17", # TD columnar keratinocytes
+  "DCN", # Fib
+  "PMEL", # Melanocyte
+  "PECAM1", # endo
+  "CD207") # Langerhans
+
+p1<- FeaturePlot(selected_inte,
+            features = known_marker_others,
+            cols = colorRampPalette(c("blue","green","yellow","orange","red"))(100),
+            split.by = "study",
+            ncol = 3,
+            pt.size = 0.05,
+            min.cutoff = 'q2',
+            max.cutoff = 'q98')
+
+ggsave("R3_3.3_marker_gene_integrated_split_study.pdf", 
+       plot = p1, 
+       width = 15, 
+       height =30)
+
+```
+
+![](images/Screenshot%202024-08-15%20at%2010.09.16%E2%80%AFAM.png)
+
+```{r}
+
+p1<- FeaturePlot(selected_inte,
+            features = unique(known_marker_others),
+            cols = colorRampPalette(c("blue","green","yellow","orange","red"))(100),
+            ncol = 1,
+            pt.size = 0.05,
+            min.cutoff = 'q2',
+            max.cutoff = 'q98')
+
+ggsave("R3_3.3_marker_gene_others_integrated.pdf", 
+       plot = p1, 
+       width = 5, 
+       height =30 )
+```
+
+![](images/Screenshot%202024-08-15%20at%2010.10.28%E2%80%AFAM.png){width="141"}
+
+```{r}
+Idents(selected_inte) <- "integrated_snn_res.0.7"
+## personalize the x-axis oeder
+selected_inte$integrated_snn_res.0.7 <- factor(x = selected_inte$integrated_snn_res.0.7, levels = c("0","1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17"))
+
+p1 <- VlnPlot(selected_inte, features= known_marker_others,
+              group.by="integrated_snn_res.0.7",
+              stack = T, 
+              sort = F, 
+              flip = T, 
+              fill.by = "ident")+  ## using "new_7_CT" for clor filling 
+  # the order of color very important for legend, legend follows only the color order without name.
+theme(axis.text = element_text(size = 10)) + 
+theme(text = element_text(size = 10))+ 
+theme(legend.position = "right")+ xlab("")+
+stat_summary(fun.y = median, geom='point',size= 5, colour = "black", shape = 95)+
+  NoLegend()
+
+ggsave("R3_3.3_Vlnplot_suprabasal_genens_Seurat.pdf", plot = p1, width = 5 , height =3)
+```
+
+![](images/Screenshot%202024-08-15%20at%2010.12.46%E2%80%AFAM.png)
+
+### 3.4 [Cell stress check for unknown cells]
+
+```{r}
+library(Seurat)
+# BiocManager::install("UCell")
+library(UCell) ## works only on R4.3, can;t install it on R4.1
+library(ggplot2)
+library(RColorBrewer)
+
+selected_inte #  = selected_inte_05_07_09
+
+#>> input stress gene list
+library(readxl)
+gene_table <- read_excel("RESPONSE_TO_STRESS_genes.xlsx", sheet = "genes")
+
+#>> stress gene list
+markers <- list()
+markers$Stress_response <-unique(gene_table$gene_symbol) ## 508 stress genes from GSEA.
+
+#>> calculate the gene_set score
+DefaultAssay(selected_inte) <- "RNA"
+selected_inte <- AddModuleScore_UCell(selected_inte, 
+                                      features = markers) ## will add one more column in meta.data for score
+
+
+# plot the stress score >>>>>>>>>>>>>>>>>>>>>>>>>>>
+library(colorspace)
+library(scCustomize)
+library(Seurat)
+library(viridis)
+library(RColorBrewer)
+
+## plot_title
+signature.names <- paste0(names(markers), "_UCell")
+
+
+p1<- FeaturePlot(selected_inte, 
+                 features= signature.names, 
+                 pt.size=0.5,
+                 ncol=1,
+                 cols = rev(brewer.pal(n = 11, name = "RdBu")))
+
+ggsave("R3_3.4_Stress_signature_socring_featurePlot.pdf", 
+       plot = p1, 
+       width = 6, 
+       height =5 )
+```
+
+![](images/Screenshot%202024-08-15%20at%2011.08.05%E2%80%AFAM.png){width="235"}
+
+```{r}
+p1<- FeaturePlot(selected_inte, 
+                 features= signature.names, 
+                 pt.size=0.5,
+                 split.by = "study",
+                 ncol=3,
+                 cols = rev(brewer.pal(n = 11, name = "RdBu")))
+
+ggsave("R3_3.4_Stress_signature_socring_featurePlot_split.pdf", 
+       plot = p1, 
+       width = 15, 
+       height =5 )
+```
+
+![](images/Screenshot%202024-08-15%20at%2011.11.09%E2%80%AFAM.png){width="420"}
+
+```{r}
+## the glycolysis gene PGK1[32](https://www.nature.com/articles/s41586-020-1962-0#ref-CR32) and the ER stress genes ARCN1[33](https://www.nature.com/articles/s41586-020-1962-0#ref-CR33) and GORASP2[34](https://www.nature.com/articles/s41586-020-1962-0#ref-CR34),[35](https://www.nature.com/articles/s41586-020-1962-0#ref-CR35), were enriched at the protein level in organoids 
+
+stress_genes<- c("PGK1", "ARCN1", "GORASP2")
+
+p1<- FeaturePlot(selected_inte,
+            features = unique(stress_genes),
+            cols = colorRampPalette(c("blue","green","yellow","orange","red"))(100),
+            ncol = 1,
+            pt.size = 0.05,
+            min.cutoff = 'q2',
+            max.cutoff = 'q98')
+
+ggsave("R3_3.4_stress_marker_gene_plot_integrated.pdf", 
+       plot = p1, 
+       width = 5, 
+       height =15 )
+```
+
+![](images/Screenshot%202024-08-15%20at%2011.28.56%E2%80%AFAM.png){width="203"}
+
+```{r}
+p1<- FeaturePlot(selected_inte,
+            features = unique(stress_genes),
+            cols = colorRampPalette(c("blue","green","yellow","orange","red"))(100),
+            ncol = 3,
+            split.by = "study",
+            pt.size = 0.05,
+            min.cutoff = 'q2',
+            max.cutoff = 'q98')
+
+ggsave("R3_3.4_stress_marker_gene_plot_split.pdf", 
+       plot = p1, 
+       width = 15, 
+       height =15 )
+```
+
+![](images/Screenshot%202024-08-15%20at%2011.35.07%E2%80%AFAM.png)
+
+## 4- Add assigned annotation
+
+### 4.0 First annotation addition
+
+```{r}
+load("1.2.4_seurat_integrated_diff_res_obj.Rdata")
+selected_inte_05_07_09-> selected_inte # res = 0.7 will be used for annotation.
+  ## selected_inte$integrated_snn_res.0.7
+
+#> get the cluster number "as character"
+cluster_number = names(table(selected_inte@meta.data$integrated_snn_res.0.7))
+
+cluster_number
+## [1] "0" "1" "2" "3" "4" "5" "6"..."16", "17".
+
+#> make corresponding cluster annotation.
+annotation_cluster = c(
+"SPN-I",
+"SPN-IV",
+"BAS-IV",
+"BAS-V",
+"GRN-II",
+"SPN-III",
+"BAS-III",
+"Fib",
+"GRN-III",
+"GRN-I",
+"BAS-I",
+"SPN-II",
+"BAS-II",
+"Unknown1",
+"MC/TD",
+"Unknown2",
+"LC",
+"Endo")
+
+# make the corresponding annotation table with cell_cluster
+cluster_anno = data.frame(cluster_number, annotation_cluster, stringsAsFactors = F)
+
+# add empty column for meta.data
+selected_inte@meta.data$cell_type_0.7 = "NA"
+
+# fill the cell types by cluster number comparison
+for(i in 1:nrow(cluster_anno)) { 
+selected_inte@meta.data[which(selected_inte@meta.data$integrated_snn_res.0.7 == cluster_anno$cluster_number[i]),'cell_type_0.7'] <- cluster_anno$annotation_cluster[i] 
+  }
+
+# check the result and performance
+table(selected_inte$cell_type_0.7)
+
+selected_inte-> selected_seurat_0.7_ct
+save(selected_seurat_0.7_ct, file = "R3_4_seurat_anno_0.7_obj.Rdata")
+```
+
+-   plot the first version
+
+```{r}
+# plot
+library(tidyverse)
+library(patchwork)
+library(viridis)
+library(Seurat)
+library(scCustomize)
+
+library(scales)
+library(ggsci)
+
+mycolor<-pal_igv("default", alpha = 0.8)(20)
+show_col(mycolor)
+
+mycolor= c(
+"BAS-I"="#6BD76BCC",
+"BAS-II"="#749B58CC"  ,
+"BAS-III"="#CDDEB7CC",
+"BAS-IV"="#466983CC" ,
+"BAS-V"="#5DB1DDCC",
+"SPN-I"= "#924822CC",
+"SPN-II"= "#D58F5CCC",
+"SPN-III"= "#E4AF69CC",
+"SPN-IV"= "#F0E685CC" ,
+"GRN-I"= "#AE1F63CC",
+"GRN-II"= "#802268CC",
+"GRN-III"= "#D595A7CC",
+"Fib"= "#CE3D32CC",
+"MC/TD"= "#7A65A5CC",
+"LC" = "#C75127CC",
+"Endo" = "#AE1F63CC",
+"Unknown1" ="#5050FFCC",
+"Unknown2" ="#BA6338CC")
+ 
+"#3B1B53CC"mel [X]
+
+selected_inte$cell_type_0.7 <- factor(x = selected_inte$cell_type_0.7, levels = c(
+"BAS-I",
+"BAS-II",
+"BAS-III",
+"BAS-IV",
+"BAS-V",
+"SPN-I",
+"SPN-II",
+"SPN-III",
+"SPN-IV" ,
+"GRN-I",
+"GRN-II",
+"GRN-III",
+"Fib",
+"MC/TD",
+"LC",
+"Endo",
+"Unknown1",
+"Unknown2"))
+
+p1 <- DimPlot_scCustom(selected_inte, 
+                     reduction = "umap",
+                     label = T, 
+                     pt.size = 0.3, 
+                     group.by = "cell_type_0.7",
+                     colors_use = mycolor,
+                     label.box = T,
+                     repel = T)+ NoLegend()
+
+ggsave(p1,filename = "R3_4.0_Cell_type_1st_umap_plot.pdf",width = 7, height =6)
+```
+
+![](images/Screenshot%202024-08-15%20at%204.21.09%E2%80%AFPM.png){width="333"}
+
+### 4.1 [re-annotate selected cells]
+
+```{r}
+## remove the cells in basal near cluster Fib
+library(shiny)
+library(plotly)
+library(dplyr)
+library(Seurat)
+
+# 1. SELECT cells, need to be removed.
+selected_seurat_FibHSE <- subset(selected_seurat_0.7_ct, subset = study == "FibHSE")
+selected_seurat_FibHSE
+  # devtools::install_github('vikkki/xSelectCells@main')
+barcodes <- xSelectCells::xSelectCells(selected_seurat_FibHSE)
+  ## after selection , we have the local vector
+barcodes-> Cell_id_remove_FibHSE # 9 cells
+barcodes <- xSelectCells::xSelectCells(selected_seurat_0.7_ct)
+barcodes-> Cell_id_need_remove # 18 cells 
+
+cell_id_remove<-unique(c(Cell_id_remove_FibHSE,Cell_id_need_remove)) ## totally 19 cells.
+
+## 2. selecte cells for Endo
+barcodes <- xSelectCells::xSelectCells(selected_seurat_0.7_ct)
+barcodes-> cell_id_Endo # 115 cells.
+
+## 3. select cells for MEL
+study_of_interest <- c("FsEpi","PmtHEE") # only MEL in cluster 7 for these two studies.
+new_inte <- subset(selected_seurat_0.7_ct, 
+                      study %in% study_of_interest)
+table(new_inte$study)
+  # FsEpi PmtHEE 
+  # 16736   4161
+
+new_inte_meta <- new_inte@meta.data # meta data
+new_inte_meta_mel <- subset(new_inte_meta, integrated_snn_res.0.7 =="7") # extract only mel meata
+cell_id_Mel <- row.names(new_inte_meta_mel) ## 1013 cells.
+```
+
+```{r}
+dim(selected_seurat_0.7_ct) # 23207 cells
+
+## remove unwanted cells from obj
+setdiff(colnames(selected_seurat_0.7_ct),cell_id_remove)-> rest_cell_bc ## 23188 cells
+
+cleaned_seurat_0.7_ct <- subset(selected_seurat_0.7_ct, cells= rest_cell_bc)
+
+cleaned_seurat_0.7_ct-> cleaned_0.7_ct
+```
+
+```{r}
+## get only meta data
+meta_cleaned<- cleaned_0.7_ct@meta.data
+
+# remove the selected Endo and MEL cells from meta
+cell_endo_mel<- unique(c(cell_id_Mel,cell_id_Endo)) # 1128 cells
+
+# generate the new_meta without endo and mel
+meta_cleaned_no_endo_mel <- meta_cleaned[!rownames(meta_cleaned) %in% cell_endo_mel, ]
+
+#>1. define the endo meta
+meta_cleaned_endo <- meta_cleaned[rownames(meta_cleaned) %in% cell_id_Endo, ]
+
+meta_cleaned_endo$cell_type_0.7<-"Endo"
+
+#>2. define the mel meta
+meta_cleaned_mel <- meta_cleaned[rownames(meta_cleaned) %in% cell_id_Mel, ]
+
+meta_cleaned_mel$cell_type_0.7<-"MEL"
+
+# Combine all three data frames
+combined_meta <- rbind(meta_cleaned_no_endo_mel, meta_cleaned_mel, meta_cleaned_endo)
+
+table(combined_meta$cell_type_0.7)
+
+## reorder the metadata.
+# Reorder the rows based on the ordered_cell_ids
+metadata_ordered <- combined_meta[colnames(cleaned_0.7_ct), ]
+
+# add back on seurat
+cleaned_0.7_ct@meta.data <- metadata_ordered
+
+table(cleaned_0.7_ct$cell_type_0.7)
+
+## 
+save(cleaned_0.7_ct,file = "R3_4.1_cleaned_seurat_0.7_ct_integrated.Rdata")
+```
+
+### 4.2 Replot annotated umap
+
+```{r}
+# plot
+library(tidyverse)
+library(patchwork)
+library(viridis)
+library(Seurat)
+library(scCustomize)
+
+library(scales)
+library(ggsci)
+
+mycolor<-pal_igv("default", alpha = 0.8)(22)
+show_col(mycolor)
+
+mycolor= c(
+"BAS-I"="#6BD76BCC",
+"BAS-II"="#749B58CC"  ,
+"BAS-III"="#CDDEB7CC",
+"BAS-IV"="#466983CC" ,
+"BAS-V"="#5DB1DDCC",
+"SPN-I"= "#924822CC",
+"SPN-II"= "#D58F5CCC",
+"SPN-III"= "#E4AF69CC",
+"SPN-IV"= "#F0E685CC" ,
+"GRN-I"= "#AE1F63CC",
+"GRN-II"= "#802268CC",
+"GRN-III"= "#D595A7CC",
+"Fib"= "#CE3D32CC",
+"MEL" = "#5050FFCC",
+"MC/TD"= "#7A65A5CC",
+"LC" = "#C75127CC",
+"Endo" = "#3B1B53CC",
+"Unknown1" ="darkgrey",
+"Unknown2" ="darkgrey")
+
+cleaned_0.7_ct$cell_type_0.7 <- factor(x = cleaned_0.7_ct$cell_type_0.7, levels = c(
+"BAS-I",
+"BAS-II",
+"BAS-III",
+"BAS-IV",
+"BAS-V",
+"SPN-I",
+"SPN-II",
+"SPN-III",
+"SPN-IV" ,
+"GRN-I",
+"GRN-II",
+"GRN-III",
+"Fib",
+"MEL",
+"MC/TD",
+"LC",
+"Endo",
+"Unknown1",
+"Unknown2"))
+
+p1 <- DimPlot_scCustom(cleaned_0.7_ct, 
+                     reduction = "umap",
+                     label = T, 
+                     pt.size = 0.3, 
+                     group.by = "cell_type_0.7",
+                     colors_use = mycolor,
+                     label.box = T,
+                     repel = T)+ NoLegend()
+
+ggsave(p1,filename = "R3_4.2_Cell_type_cleaned_modified_umap_plot.pdf",width = 7, height =6)
+```
+
+![](images/Screenshot%202024-08-16%20at%209.46.07%E2%80%AFAM.png){width="514"}
+
+```{r}
+## split by study
+## 3-column split
+p1<-DimPlot(cleaned_0.7_ct, 
+            reduction = "umap",
+            group.by = "cell_type_0.7",
+            label = F, 
+            pt.size = 0.5, 
+            label.box = F,
+            repel = F,
+            cols = mycolor,
+            split.by = "study",
+            ncol = 1)+NoLegend()
+
+ggsave(p1,filename = "R3_4.2_Cell_type_cleaned_modified_umap_plot_split.pdf",width =7, height =15)
+```
+
+![](images/Screenshot%202024-08-16%20at%209.47.00%E2%80%AFAM.png){width="331"}
+
+## 5- plot marker genes
+
+### 5.1 General marker gene plot
+
+```{r}
+load("R3_4.1_cleaned_seurat_0.7_ct_integrated.Rdata")
+cleaned_0.7_ct -> selected_inte
+  
+#>> SET rna assay
+DefaultAssay(selected_inte) <- "RNA"
+
+Idents(selected_inte) <- 'cell_type_0.7'
+
+plot_genes <- c(
+  "CCNB1", #BAS-I
+  "MKI67", # BAS-I, BAS-II
+  "PCNA", # BAS-II, BAS-III
+  "KRT15", # BAS-IV
+  "KRT5","KRT14", # BAS-V
+  
+  "KRT1","KRT10", # SPN-I/II/III/IV
+  "SPINK5", # GRN-I/II
+  "FLG", # GRN-III
+  "DCN", # Fib
+  "PMEL", # MEL
+  "KRT17", # TD
+  "KRT8","KRT18", # Merklecells 
+  "CD207", # Langerhans
+  "PECAM1") # ENDO
+
+
+## personalize the x-axis oeder
+selected_inte$cell_type_0.7 <- factor(x = selected_inte$cell_type_0.7, levels = c(
+"BAS-I",
+"BAS-II",
+"BAS-III",
+"BAS-IV",
+"BAS-V",
+"SPN-I",
+"SPN-II",
+"SPN-III",
+"SPN-IV" ,
+"GRN-I",
+"GRN-II",
+"GRN-III",
+"Fib",
+"MEL",
+"MC/TD",
+"LC",
+"Endo",
+"Unknown1",
+"Unknown2"))
+
+p1 <- VlnPlot(selected_inte, 
+              features= plot_genes,
+              group.by="cell_type_0.7",
+              stack = T, 
+              sort = F, 
+              flip = T, 
+              fill.by = "ident",
+              cols= mycolor) +  # the order of color very important for legend, legend follows only the color order without name.
+theme(axis.text = element_text(size = 10)) + 
+theme(text = element_text(size = 10))+ 
+theme(legend.position = "right")+ xlab("")+
+stat_summary(fun.y = median, geom='point',size= 5, colour = "black", shape = 95)
+
+ggsave("R3_5_marker_genens_vlnplot.pdf", plot = p1, width = 6 , height = 5)
+```
+
+![](images/Screenshot%202024-08-16%20at%209.48.43%E2%80%AFAM.png){width="431"}
+
+### 5.2 Proportion of cell types
+
+```{r}
+library(dittoSeq)
+
+cell_order = c(
+  "BAS-I",
+"BAS-II",
+"BAS-III",
+"BAS-IV",
+"BAS-V",
+"SPN-I",
+"SPN-II",
+"SPN-III",
+"SPN-IV" ,
+"GRN-I",
+"GRN-II",
+"GRN-III",
+"Fib",
+"MEL",
+"MC/TD",
+"LC",
+"Endo",
+"Unknown1",
+"Unknown2")
+
+p1<-dittoBarPlot(selected_inte, 
+                 "study",  # stacks on bar
+                 group.by = "cell_type_0.7", # x-axis
+                 scale = "percent")+ 
+                scale_x_discrete(limits = cell_order) + # Adjust the x-axis order
+   scale_fill_manual(values = c("FibHSE" = "#FF0000", 
+                                "FsEpi" = "#0CA14A", 
+                                "PmtHEE" = "blue"))
+
+ggsave("R3_5.2_split_study_cell_type_percent_ratio.pdf", plot = p1, width = 5, height =3)
+```
+
+![](images/Screenshot%202024-08-16%20at%2010.07.02%E2%80%AFAM.png)
+
+```{r}
+# Extract the data from dittoBarPlot
+plot_data <- p1$data
+
+# Recreate the bar plot using ggplot2
+p2 <- ggplot(plot_data, aes(x = grouping, y = percent, fill = label)) + # grouping is "cell_type_0.7", 
+      geom_bar(stat = "identity", position = "stack") +
+      scale_x_discrete(limits = cell_order) +
+      scale_fill_manual(values = c("FibHSE" = "#FF0000", 
+                                   "FsEpi" = "#0CA14A", 
+                                   "PmtHEE" = "blue")) +
+      ylab("Percentage") +
+      theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  
+# Add a fitting curve to show the trend
+  geom_smooth(aes(x = factor(grouping, levels = cell_order), 
+                  group = label, color = label), 
+              method = "loess", 
+              se = FALSE, 
+              size = 1) + # label is "study" 
+  coord_cartesian(ylim = c(0, 1))  # Ensure the y-axis range is between 0 and 1
+
+ggsave("R3_5.2_study_cell_type_percent_ratio_with_curve.pdf", plot = p2, width = 5, height =3)
+```
+
+![](images/Screenshot%202024-08-16%20at%202.00.13%E2%80%AFPM.png)

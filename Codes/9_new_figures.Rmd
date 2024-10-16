@@ -1,0 +1,216 @@
+---
+title: "Reitermaier_2021"
+author: "Yelon"
+date: "2023-03-06"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+-   R 4.4.1
+
+```{r}
+# BiocManager::install("Rsamtools")
+# devtools::install_github("zhanghao-njmu/SCP") # Install SCP under R4.4.1
+
+# options(reticulate.conda_binary = "/Users/yelon/miniconda3/bin/conda")
+# SCP::PrepareEnv()
+options(reticulate.conda_binary = "/Users/yelon/miniconda3/bin/conda",SCP_env_name = "SCP_env") ## need  specify the conda path first before run SCP
+library(SCP)
+
+library(ggplot2)
+library(Seurat)  # Seurat_4.4.0
+set.seed(805181) ## for repeatability of cluster mapping.
+```
+
+## 1- new_umap_plot for all cells
+
+```{r}
+##> input is seurat
+load("R3_4.1_cleaned_seurat_0.7_ct_integrated.Rdata") # cleaned_0.7_ct
+cleaned_0.7_ct-> selected_obj
+
+#> define the color
+library(scales)
+library(ggsci)
+
+mycolor<-pal_igv("default", alpha = 0.8)(22)
+show_col(mycolor)
+
+mycolor= c(
+"BAS-I"="#6BD76BCC",
+"BAS-II"="#749B58CC"  ,
+"BAS-III"="#CDDEB7CC",
+"BAS-IV"="#466983CC" ,
+"BAS-V"="#5DB1DDCC",
+"SPN-I"= "#924822CC",
+"SPN-II"= "#D58F5CCC",
+"SPN-III"= "#E4AF69CC",
+"SPN-IV"= "#F0E685CC" ,
+"GRN-I"= "#AE1F63CC",
+"GRN-II"= "#802268CC",
+"GRN-III"= "#D595A7CC",
+"Fib"= "#CE3D32CC",
+"MEL" = "#5050FFCC",
+"MC/TD"= "#7A65A5CC",
+"LC" = "#C75127CC",
+"Endo" = "#3B1B53CC",
+"Unknown1" ="darkgrey",
+"Unknown2" ="darkgrey")
+
+# reorder the cell types
+selected_obj$cell_type_0.7 <- factor(x = selected_obj$cell_type_0.7, levels = c(
+"BAS-I",
+"BAS-II",
+"BAS-III",
+"BAS-IV",
+"BAS-V",
+"SPN-I",
+"SPN-II",
+"SPN-III",
+"SPN-IV" ,
+"GRN-I",
+"GRN-II",
+"GRN-III",
+"Fib",
+"MEL",
+"MC/TD",
+"LC",
+"Endo",
+"Unknown1",
+"Unknown2"))
+```
+
+### 1.1- plot_all cells with anno
+
+```{r}
+p1<-CellDimPlot(selected_obj, 
+            palcolor = mycolor , # customize the cell color
+            label = TRUE, # Add number
+            label_insitu = TRUE, # add cell type name
+            pt.size = 0.7, # define the point size
+            group.by = "cell_type_0.7", 
+            reduction = "UMAP",
+            theme_use = "theme_blank")
+
+ggsave(p1,filename = "R9_1.1_all_cells_umap.pdf",width = 12, height =6)
+```
+
+![](images/Screenshot%202024-10-16%20at%2011.47.49%E2%80%AFAM.png){width="371"}
+
+### 1.2- split plot for study
+
+```{r}
+# define the color
+
+# reorder the study
+levels(selected_obj@meta.data$study)
+
+		# Reorder the factor levels based on your desired order
+selected_obj@meta.data$study <- factor(selected_obj@meta.data$study, 
+                                       levels = c("FsEpi", 
+                                                  "FibHSE", 
+                                                  "PmtHEE"))
+
+
+p1<-CellDimPlot(selected_obj, 
+            palcolor = mycolor, # customize the cell color
+            pt.size = 0.7, # define the point size
+            group.by = "cell_type_0.7", 
+            split.by = "study",
+            reduction = "UMAP",
+            cells.highlight = TRUE,
+            theme_use = "theme_blank",
+            legend.position = "right",
+            nrow = 1,
+            ncol = 3) +
+      theme(plot.title = element_text(size = 20))
+
+ggsave(p1,filename = "R9_1.2_Cell_type_umap_plot_split.pdf",
+       width = 15, height =5)
+```
+
+![](images/Screenshot%202024-10-16%20at%2011.56.57%E2%80%AFAM.png)
+
+## 2- new_umap for KC_only
+
+```{r}
+## input
+## input is seurat
+load("R4_6.3_KC_only_processed.Rdata")
+KC_only_processed-> selected_kc
+```
+
+```{r}
+cluster_color= c(
+"BAS-I"="#6BD76BCC",
+"BAS-II"="#749B58CC"  ,
+"BAS-III"="#CDDEB7CC",
+"BAS-IV"="#466983CC" ,
+"BAS-V"="#5DB1DDCC",
+"SPN-I"= "#924822CC",
+"SPN-II"= "#D58F5CCC",
+"SPN-III"= "#E4AF69CC",
+"SPN-IV"= "#F0E685CC" ,
+"GRN-I"= "#AE1F63CC",
+"GRN-II"= "#802268CC",
+"GRN-III"= "#D595A7CC")
+
+# reorder the study
+levels(selected_kc@meta.data$study)
+
+# Reorder the factor levels based on your desired order
+selected_kc@meta.data$study <- factor(selected_kc@meta.data$study, 
+                                       levels = c("FsEpi", 
+                                                  "FibHSE", 
+                                                  "PmtHEE"))
+
+p1<-CellDimPlot(selected_kc, 
+            palcolor = cluster_color, # customize the cell color
+            pt.size = 0.7, # define the point size
+            group.by = "cell_type_0.7", 
+            split.by = "study",
+            reduction = "UMAP",
+            cells.highlight = TRUE,
+            theme_use = "theme_blank",
+            legend.position = "none",
+            nrow = 3,
+            ncol = 1) +
+      theme(plot.title = element_text(size = 20))
+
+ggsave(p1,filename = "R9_2_KC_Cell_type_umap_plot_split.pdf",width = 5, height =15)
+```
+
+![](images/Screenshot%202024-10-16%20at%2012.03.08%E2%80%AFPM.png){width="189"}
+
+## 3- new_umap_kc_only for study
+
+```{r}
+
+## plot
+study_color = c("FsEpi" = "#0CA14A",
+                "FibHSE" = "#FF0000", 
+                "PmtHEE" = "blue")
+
+# reorder the study
+levels(selected_kc@meta.data$study)
+
+# Reorder the factor levels based on your desired order
+selected_kc@meta.data$study <- factor(selected_kc@meta.data$study, 
+                                       levels = c("FsEpi", 
+                                                  "FibHSE", 
+                                                  "PmtHEE"))
+
+p1<-CellDimPlot(selected_kc, 
+            palcolor = study_color, # customize the cell color
+            # label = TRUE, # Add number
+            # label_insitu = TRUE, # add cell type name
+            pt.size = 0.7, # define the point size
+            group.by = "study", 
+            reduction = "UMAP")
+            #theme_use = "theme_blank")
+
+ggsave(p1,filename = "R9_3_KC_study_umap_plot.pdf",width = 9, height =6)
+```
+
+![](images/Screenshot%202024-10-16%20at%2012.18.26%E2%80%AFPM.png){width="447"}

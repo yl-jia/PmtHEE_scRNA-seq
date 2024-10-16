@@ -1,0 +1,919 @@
+---
+title: "Reitermaier_2021"
+author: "Yelon"
+date: "2023-03-06"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r}
+library(Seurat)
+library(ggplot2)
+library(ggpubr)
+library(tidyverse)
+
+library(patchwork)
+library(viridis)
+library(scCustomize)
+
+library(scales)
+library(ggsci)
+set.seed(805181) ## for repeatability of cluster mapping.
+```
+
+## 6- KC-only object for further analysis
+
+```{r}
+load("R3_4.1_cleaned_seurat_0.7_ct_integrated.Rdata")
+cleaned_0.7_ct-> selected_inte
+```
+
+### 6.1_get KC_only object
+
+```{r}
+library(plotly)
+library(dplyr)
+library(Seurat)
+```
+
+```{r}
+# define the KC only clusters
+clusters_of_interest <-c(
+"BAS-I",
+"BAS-II",
+"BAS-III",
+"BAS-IV",
+"BAS-V",
+"SPN-I",
+"SPN-II",
+"SPN-III",
+"SPN-IV" ,
+"GRN-I",
+"GRN-II",
+"GRN-III")
+
+KC_only_obj <- subset(selected_inte, 
+                      cell_type_0.7 %in% clusters_of_interest)
+
+dim(selected_inte) # 23188 cells.
+dim(KC_only_obj) # 21105 cells.
+```
+
+```{r}
+## plot the KC-only obj
+# plot
+library(tidyverse)
+library(patchwork)
+library(viridis)
+library(Seurat)
+library(scCustomize)
+
+library(scales)
+library(ggsci)
+
+mycolor<-pal_igv("default", alpha = 0.8)(22)
+show_col(mycolor)
+
+mycolor= c(
+"BAS-I"="#6BD76BCC",
+"BAS-II"="#749B58CC"  ,
+"BAS-III"="#CDDEB7CC",
+"BAS-IV"="#466983CC" ,
+"BAS-V"="#5DB1DDCC",
+"SPN-I"= "#924822CC",
+"SPN-II"= "#D58F5CCC",
+"SPN-III"= "#E4AF69CC",
+"SPN-IV"= "#F0E685CC" ,
+"GRN-I"= "#AE1F63CC",
+"GRN-II"= "#802268CC",
+"GRN-III"= "#D595A7CC")
+
+KC_only_obj$cell_type_0.7 <- factor(x = KC_only_obj$cell_type_0.7, levels = c(
+"BAS-I",
+"BAS-II",
+"BAS-III",
+"BAS-IV",
+"BAS-V",
+"SPN-I",
+"SPN-II",
+"SPN-III",
+"SPN-IV" ,
+"GRN-I",
+"GRN-II",
+"GRN-III"))
+
+p1 <- DimPlot_scCustom(KC_only_obj, 
+                     reduction = "umap",
+                     label = T, 
+                     pt.size = 0.3, 
+                     group.by = "cell_type_0.7",
+                     colors_use = mycolor,
+                     label.box = T,
+                     repel = T)+ NoLegend()
+
+ggsave(p1,filename = "R4_6.1_Cell_type_kc_only_umap_plot.pdf",width = 7, height =6)
+```
+
+![](images/Screenshot%202024-08-16%20at%202.30.17%E2%80%AFPM.png){width="361"}
+
+### 6.2_Re-clustering
+
+```{r}
+KC_only_obj
+
+##> Processing after integration 
+DefaultAssay(KC_only_obj) <- "integrated" 
+     # no need for normalize and variable features, because here are only normalized variable features.
+     # Scale the variable features. ####
+     # variable features defined already in "integrated" assay
+     selected_inte <- ScaleData(KC_only_obj)%>% 
+                             RunPCA() %>% FindNeighbors(dims = 1:30) %>%
+                             FindClusters(resolution = 0.5) %>%
+                             RunUMAP(dims = 1:30) %>% 
+                             RunTSNE(dims = 1:30)
+
+##> check diff res
+    # res.used <- seq(0.1,1, by=0.2)
+    res.used<- c(0.7,0.9)
+    # [1] 0.7 0.9. # 0.5 did before
+        # Loop over and perform clustering of different resolutions
+    for(i in res.used){
+        selected_inte <- FindClusters(selected_inte, resolution = res.used)
+    }
+    
+selected_inte-> KC_only_processed
+save(KC_only_processed, file = "R4_6.3_KC_only_processed.Rdata")
+```
+
+### 6.3_plot with diff_res
+
+```{r}
+##  Draw the UMAP plot for different resolution ####
+      p_0.5 = DimPlot(selected_inte, 
+                      reduction = "umap",
+                      label = T, group.by = "integrated_snn_res.0.5")
+      p_0.7 = DimPlot(selected_inte, 
+                      reduction = "umap",
+                      label = T, group.by = "integrated_snn_res.0.7")
+      p_0.9 = DimPlot(selected_inte, 
+                      reduction = "umap",
+                      label = T, group.by = "integrated_snn_res.0.9")
+      p_ct = DimPlot(selected_inte, 
+                      reduction = "umap",
+                      label = T, 
+                     group.by = "cell_type_0.7",
+                     cols = mycolor )
+
+      plot_res<-ggarrange(p_0.5,p_0.7,p_0.9,p_ct,
+                          labels = c("UMAP_res_0.5","UMAP_res_0.7","UMAP_res_0.9","cell_type_0.7"), 
+                          ncol = 2, nrow=2,
+                          font.label = list(size = 10, color = "red", face = "italic"))
+
+      ggsave("R4_6.3_Resolution_UMAP_seurat_cluster.pdf", plot = plot_res, width = 10, height = 10)
+```
+
+![](images/Screenshot%202024-08-18%20at%2012.55.52%E2%80%AFAM.png){width="371"}
+
+```{r}
+### split for diff studies
+## split by study
+## 3-column split
+p1<-DimPlot(selected_inte, 
+            reduction = "umap",
+            group.by = "cell_type_0.7",
+            label = F, 
+            pt.size = 0.5, 
+            label.box = F,
+            repel = F,
+            cols = mycolor,
+            split.by = "study",
+            ncol = 1)+NoLegend()
+
+ggsave(p1,filename = "R4_6.3_Cell_type_cleaned_modified_umap_plot_split.pdf",width =5, height =15)
+```
+
+![](images/Screenshot%202024-08-19%20at%2010.39.40%E2%80%AFAM.png){width="233"}
+
+### 6.4_check the marker gene expression
+
+```{r}
+DefaultAssay(selected_inte) <- "RNA" 
+## define the marker genes.
+known_marker= c(
+## Mitotic KC: [ Proliferating KC = Mitotic cells = proliferative stem cells]
+  "MKI67", "CCNB1","PCNA",
+  # Basal keratinocyte (BK) = Undifferentiated keratinocytes
+  "KRT14", "KRT5", "KRT15", "COL17A1",
+    # Undifferentiated epidermal basal cells encompassing three quiescent (BC1–3) and proliferating (MC) subpopulations.
+    # Expression of keratin 14 (K14, a marker for basal keratinocytes [Fuchs and Green, 1980]) and K15(which is enriched in stable basal cells [Porter et al., 2000]
+  
+  "KRT10","KRT1","DSG1", # ## Spinous KC [stratum spinosum-layer]
+  ## Granular KC
+  "FLG", "SPINK5",
+  "KRT17","KRT18")
+
+p1<- FeaturePlot(selected_inte,
+            features = unique(known_marker),
+            cols = colorRampPalette(c("blue","green","yellow","orange","red"))(100),
+            ncol = 4,
+            pt.size = 0.05,
+            min.cutoff = 'q2',
+            max.cutoff = 'q98')
+
+ggsave("R4_6.4_marker_gene_seurat_reclustered.pdf", 
+       plot = p1, 
+       width = 18, 
+       height =20 ) 
+```
+
+![](images/Screenshot%202024-08-19%20at%208.27.27%E2%80%AFAM.png){width="459"}
+
+## 7- Check cell type ratio change trend between studies
+
+```{r}
+library(dittoSeq)
+
+cell_order = c(
+"BAS-I",
+"BAS-II",
+"BAS-III",
+"BAS-IV",
+"BAS-V",
+"SPN-I",
+"SPN-II",
+"SPN-III",
+"SPN-IV" ,
+"GRN-I",
+"GRN-II",
+"GRN-III")
+
+p1<-dittoBarPlot(selected_inte, 
+                 "study",  # stacks on bar
+                 group.by = "cell_type_0.7", # x-axis
+                 scale = "percent")+ 
+                scale_x_discrete(limits = cell_order) + # Adjust the x-axis order
+   scale_fill_manual(values = c("FibHSE" = "#FF0000", 
+                                "FsEpi" = "#0CA14A", 
+                                "PmtHEE" = "blue"))
+
+
+ggsave("R4_7_split_study_cell_type_percent_ratio.pdf", plot = p1, width = 5, height =3)
+```
+
+![](images/Screenshot%202024-08-20%20at%202.02.05%E2%80%AFPM.png){width="433"}
+
+```{r}
+# Extract the data from dittoBarPlot
+plot_data <- p1$data
+
+# Recreate the bar plot using ggplot2
+p2 <- ggplot(plot_data, aes(x = grouping, y = percent, fill = label)) + # grouping is "cell_type_0.7", 
+      geom_bar(stat = "identity", position = "stack") +
+      scale_x_discrete(limits = cell_order) +
+      scale_fill_manual(values = c("FibHSE" = "#FF0000", 
+                                   "FsEpi" = "#0CA14A", 
+                                   "PmtHEE" = "blue")) +
+      ylab("Percentage") +
+      theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  
+# Add a fitting curve to show the trend
+  geom_smooth(aes(x = factor(grouping, levels = cell_order), 
+                  group = label, color = label), 
+              method = "loess", 
+              se = FALSE, 
+              size = 1) + # label is "study" 
+  coord_cartesian(ylim = c(0, 1))  # Ensure the y-axis range is between 0 and 1
+
+ggsave("R4_7_study_cell_type_percent_ratio_with_curve.pdf", plot = p2, width = 5, height =3)
+```
+
+![](images/Screenshot%202024-08-20%20at%202.03.35%E2%80%AFPM.png){width="401"}
+
+### 7.1_new_trend_plot
+
+```{r}
+load("R4_6.3_KC_only_processed.Rdata")
+
+KC_only_processed-> selected_kc
+
+# calculatet the cell number for each condition.
+library(dittoSeq)
+cell_order = c(
+"BAS-I",
+"BAS-II",
+"BAS-III",
+"BAS-IV",
+"BAS-V",
+"SPN-I",
+"SPN-II",
+"SPN-III",
+"SPN-IV" ,
+"GRN-I",
+"GRN-II",
+"GRN-III")
+
+p1<-dittoBarPlot(selected_kc, 
+                 "study",  # stacks on bar
+                 group.by = "cell_type_0.7", # x-axis
+                 scale = "count")+ 
+                scale_x_discrete(limits = cell_order) + # Adjust the x-axis order
+   scale_fill_manual(values = c("FibHSE" = "#FF0000", 
+                                "FsEpi" = "#0CA14A", 
+                                "PmtHEE" = "blue"))
+
+p1$data -> output_count # the matrix for cell count in each condition and cluster.
+
+library(openxlsx)
+write.xlsx(output_count,"R4_7.1_cell_count_and_ratio.xlsx") 
+## Reculaculate the ratio and normalized by total sample cell number 
+```
+
+![](images/Screenshot%202024-09-26%20at%203.21.42%E2%80%AFPM.png){width="249"}
+
+```{r}
+## input the new data table with normalized ratio
+library(readxl)
+s1 <- read_excel("R4_7.1_cell_count_and_ratio.xlsx", sheet = "normalized_by_sample")
+```
+
+```{r}
+## replot with trend
+# Extract the data from dittoBarPlot
+plot_data <- s1
+
+# Recreate the bar plot using ggplot2
+p2 <- ggplot(plot_data, aes(x = grouping, y = percent, fill = label)) + # grouping is "cell_type_0.7", 
+      geom_bar(stat = "identity", position = "stack") +
+      scale_x_discrete(limits = cell_order) +
+      scale_fill_manual(values = c("FibHSE" = "#FF0000", 
+                                   "FsEpi" = "#0CA14A", 
+                                   "PmtHEE" = "blue")) +
+      ylab("Percentage") +
+      theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  
+# Add a fitting curve to show the trend
+  geom_smooth(aes(x = factor(grouping, levels = cell_order), 
+                  group = label, color = label), 
+              method = "loess", 
+              se = FALSE, 
+              size = 1) + # label is "study" 
+  coord_cartesian(ylim = c(0, 1))  # Ensure the y-axis range is between 0 and 1
+
+ggsave("R4_7.1_study_cell_type_percent_ratio_with_curve_new_sample_nor.pdf", plot = p2, width = 5, height =3) # condition cell number independent cell ratio change.
+```
+
+![](images/Screenshot%202024-09-26%20at%203.27.30%E2%80%AFPM.png){width="433"}
+
+## 8- Combined DEG and marker genes
+
+### 8.1_calculate top genes [COSG]
+
+```{r}
+library(Seurat)
+library(ggpubr)
+library(ggplot2)
+# remotes::install_github(repo = 'genecell/COSGR')
+library(COSG)
+library(ggpubr)
+
+### define the deault identities.
+Idents(selected_kc) <- "cell_type_0.7"
+
+table(Idents(selected_kc))
+  # BAS-I  BAS-II BAS-III  BAS-IV   BAS-V   SPN-I  SPN-II SPN-III  SPN-IV   GRN-I  GRN-II GRN-III 
+  #  902     563    1652    2446    2439    3026     653    1830    2979    1168    2220    1227  
+
+marker_cosg <- cosg(selected_kc, groups='all', 
+                    assay='RNA',  ## original matrix
+                    slot='data', ## use the normalized count
+                    mu=1,
+                    n_genes_user=50) # Number of top ranked genes returned 
+
+# Check the marker genes and scores:
+head(marker_cosg$names) # 12 columns = 12 cluster names
+head(marker_cosg$scores)
+
+## extract and combine top10 genes 
+num=10 # define the top gene number
+top_10_genes <- unlist(lapply(1:12, function(i) head(marker_cosg$names[,i], num))) # 120 top genes for 12 clusters
+
+# save total top10 genes
+save(top_10_genes, file="R4_8.1_kc_total_cluster_top_10.Rdata")
+```
+
+### 8.2_Visulization [COSG]
+
+```{r}
+## heatmap
+library(Scillus)
+library(tidyverse)
+library(Seurat)
+library(magrittr)
+library(tidyverse)
+library('magrittr')
+library(R.utils)
+
+# define the color
+cluster_color= c(
+"BAS-I"="#6BD76BCC",
+"BAS-II"="#749B58CC"  ,
+"BAS-III"="#CDDEB7CC",
+"BAS-IV"="#466983CC" ,
+"BAS-V"="#5DB1DDCC",
+"SPN-I"= "#924822CC",
+"SPN-II"= "#D58F5CCC",
+"SPN-III"= "#E4AF69CC",
+"SPN-IV"= "#F0E685CC" ,
+"GRN-I"= "#AE1F63CC",
+"GRN-II"= "#802268CC",
+"GRN-III"= "#D595A7CC")
+
+study_color = c("FibHSE" = "#FF0000", 
+                "FsEpi" = "#0CA14A", 
+                "PmtHEE" = "blue")
+
+# define the 'RNA' as default. 
+DefaultAssay(selected_kc) <- "RNA"
+  ## scale full gene.
+all.genes <- rownames(selected_kc)
+selected_kc <- ScaleData(selected_kc, features = all.genes)
+
+pdf("R4_8.2_Cluster_top10_heatmap_by_scillus2_for_integrated_cluster.pdf",width = 7, height =10)
+
+plot_heatmap(dataset = selected_kc,
+             markers = top_10_genes,
+             sort_var = c("cell_type_0.7","study"), # first and 2nd row column annotation
+             anno_var = c("cell_type_0.7","study"), # show which annotation
+             anno_colors = list(cluster_color,      # RColorBrewer palette
+                                study_color),
+            hm_limit = c(-2, 0, 2),
+            row_font_size = 5 # change the font size.
+            ) # the value filling color)
+
+dev.off()
+```
+
+![](images/Screenshot%202024-09-27%20at%2012.56.46%E2%80%AFAM.png){width="385"}
+
+### 8.3_calculate_top_genes [Seurat]
+
+```{r}
+library(Seurat)
+## marker gene calculate [only top10][method_2]
+DefaultAssay(selected_kc) <- "RNA"
+Idents(selected_kc)="cell_type_0.7"
+markers_celltype <- FindAllMarkers(selected_kc, only.pos = TRUE, 
+                                    min.pct = 0.3, 
+                                    logfc.threshold = 0.3,
+                                    test.use = "wilcox") 
+## extract top10 genes
+markers_celltype %>%group_by(cluster) %>%top_n(n = 10, wt = avg_log2FC) -> top10_marker_genes
+        # [wt] :: The variable to use for ordering.
+
+
+# save total top10 genes
+save(top10_marker_genes, file="R4_8.3_kc_total_cluster_top_10_seurat.Rdata")
+```
+
+### 8.4_Visualization [Seurat]
+
+```{r}
+## heatmap
+library(Scillus)
+library(tidyverse)
+library(Seurat)
+library(magrittr)
+library(tidyverse)
+library('magrittr')
+library(R.utils)
+
+# define the color
+cluster_color= c(
+"BAS-I"="#6BD76BCC",
+"BAS-II"="#749B58CC"  ,
+"BAS-III"="#CDDEB7CC",
+"BAS-IV"="#466983CC" ,
+"BAS-V"="#5DB1DDCC",
+"SPN-I"= "#924822CC",
+"SPN-II"= "#D58F5CCC",
+"SPN-III"= "#E4AF69CC",
+"SPN-IV"= "#F0E685CC" ,
+"GRN-I"= "#AE1F63CC",
+"GRN-II"= "#802268CC",
+"GRN-III"= "#D595A7CC")
+
+study_color = c("FibHSE" = "#FF0000", 
+                "FsEpi" = "#0CA14A", 
+                "PmtHEE" = "blue")
+
+# define the 'RNA' as default. 
+DefaultAssay(selected_kc) <- "RNA"
+  ## scale full gene.
+all.genes <- rownames(selected_kc)
+selected_kc <- ScaleData(selected_kc, features = all.genes)
+
+pdf("R4_8.4_Cluster_seurat_top10_heatmap_for_integrated_cluster.pdf",width = 7, height =10)
+
+plot_heatmap(dataset = selected_kc,
+             markers = top10_marker_genes$gene,
+             sort_var = c("cell_type_0.7","study"), # first and 2nd row column annotation
+             anno_var = c("cell_type_0.7","study"), # show which annotation
+             anno_colors = list(cluster_color,      # RColorBrewer palette
+                                study_color),
+            hm_limit = c(-2, 0, 2),
+            row_font_size = 5 # change the font size.
+            ) # the value filling color)
+
+dev.off()
+```
+
+![](images/Screenshot%202024-09-27%20at%203.52.48%E2%80%AFAM.png){width="364"}
+
+### 8.5\_[Seurat] Identify conserved cell type markers [Seurat]
+
+-   To identify canonical cell type marker genes that are conserved across conditions, we provide the [`FindConservedMarkers()`](https://satijalab.org/seurat/reference/findconservedmarkers) function.
+
+-   <https://satijalab.org/seurat/articles/integration_introduction>
+
+```{r}
+    # BiocManager::install('multtest')
+    # install.packages('metap')
+# calculate all converserved markers
+cluster_name<-unique(markers_celltype$cluster)
+cluster_name # 12 cluster name
+
+# cluster_1_marker_table<- FindConservedMarkers(selected_kc, ident.1 = cluster_name[1], grouping.var = "study", verbose = TRUE) # table
+# head(row.names(cluster_1_marker_table),10) # top 10 genes
+
+# batch to combine all top10 markers
+top_10_covered_markers <- unlist(lapply(1:12, function(i) head(row.names(FindConservedMarkers(selected_kc, ident.1 = cluster_name[i], grouping.var = "study", verbose = TRUE))))) # only 72 genes
+
+# save
+save(top_10_covered_markers, file= "R4_8.5_top10_coversed_markers.Rdata")
+```
+
+### 8.6_Visualization [Seurat_conversed]
+
+```{r}
+# define the 'RNA' as default. 
+DefaultAssay(selected_kc) <- "RNA"
+  ## scale full gene.
+    # all.genes <- rownames(selected_kc)
+    # selected_kc <- ScaleData(selected_kc, features = all.genes)
+
+pdf("R4_8.6_Cluster_seurat_conversed_top10_heatmap_for_integrated_cluster.pdf",width = 7, height =10)
+
+plot_heatmap(dataset = selected_kc,
+             markers = top_10_covered_markers,
+             sort_var = c("cell_type_0.7","study"), # first and 2nd row column annotation
+             anno_var = c("cell_type_0.7","study"), # show which annotation
+             anno_colors = list(cluster_color,      # RColorBrewer palette
+                                study_color),
+            hm_limit = c(-2, 0, 2),
+            row_font_size = 5 # change the font size.
+            ) # the value filling color)
+
+dev.off()
+```
+
+![](images/Screenshot%202024-09-27%20at%204.42.34%E2%80%AFAM.png){width="326"}
+
+## 9- Individual DEGs and marker genes
+
+### 9.1-FsEpi
+
+```{r}
+## subset for FsEpi KC
+kc_id <- subset(selected_kc@meta.data, study=="FsEpi") 
+FsEpi_seurat <- subset(selected_kc, cells=row.names(kc_id))
+
+Idents(FsEpi_seurat) <- "cell_type_0.7"
+
+## COSG 
+marker_cosg <- cosg(FsEpi_seurat, groups='all', 
+                    assay='RNA',  ## original matrix
+                    slot='data', ## use the normalized count
+                    mu=1,
+                    n_genes_user=50) # Number of top ranked genes returned 
+
+## extract and combine top10 genes 
+num=10 # define the top gene number
+top_10_genes <- unlist(lapply(1:12, function(i) head(marker_cosg$names[,i], num))) # 120 top genes for 12 clusters
+
+# save total top10 genes
+save(top_10_genes, file="R4_9.1_FsEpi_kc_total_cluster_top_10.Rdata")
+```
+
+```{r}
+## heatmap
+library(Scillus)
+library(tidyverse)
+library(Seurat)
+library(magrittr)
+library(tidyverse)
+library('magrittr')
+library(R.utils)
+
+# define the 'RNA' as default. 
+DefaultAssay(FsEpi_seurat) <- "RNA"
+  ## scale full gene.
+    # all.genes <- rownames(selected_kc)
+    # selected_kc <- ScaleData(selected_kc, features = all.genes)
+
+pdf("R4_9.1_Cluster_FsEpi_top10_heatmap.pdf",width = 7, height =10)
+
+plot_heatmap(dataset = FsEpi_seurat,
+             markers = top_10_genes,
+             sort_var = c("cell_type_0.7"), # first and 2nd row column annotation
+             anno_var = c("cell_type_0.7"), # show which annotation
+             anno_colors = list(cluster_color),
+            hm_limit = c(-2, 0, 2),
+            row_font_size = 5 # change the font size.
+            ) # the value filling color)
+
+dev.off()
+```
+
+![](images/Screenshot%202024-09-27%20at%205.15.48%E2%80%AFAM.png){width="333"}
+
+### 9.2-FibHSE
+
+```{r}
+library(Seurat)
+library(ggpubr)
+library(ggplot2)
+# remotes::install_github(repo = 'genecell/COSGR')
+library(COSG)
+library(ggpubr)
+
+## subset for FsEpi KC
+kc_id <- subset(selected_kc@meta.data, study=="FibHSE") 
+FibHSE_seurat <- subset(selected_kc, cells=row.names(kc_id))
+
+Idents(FibHSE_seurat) <- "cell_type_0.7"
+
+DefaultAssay(FibHSE_seurat)<- 'RNA'
+
+# When I removed the celltype that had only 1 cell, it worked! Besides, I think calculate markers for a celltype with small population (less than 10 cells or more) may be not reliable, so I filtered these celltypes before running cosg.
+
+# filter the group, remove low cell number grouo for marker gene calculation, keep ony clusters >=10 cells
+groups_selected <- names(table(FibHSE_seurat$cell_type_0.7)[table(FibHSE_seurat$cell_type_0.7) >= 10]) # only 9 groups
+
+clusters_of_interest <- groups_selected
+  # "BAS-I"   "BAS-II"  "BAS-III" "BAS-IV"  "BAS-V"   "SPN-IV"  "GRN-I"   "GRN-II"  "GRN-III"
+
+new_filtered_seurat <- subset(FibHSE_seurat, 
+                       cell_type_0.7 %in% clusters_of_interest)
+
+modi_FibHSE<-new_filtered_seurat # filtered FibHSE
+
+save(modi_FibHSE,file="R4_9.2_filtered_FibHSE_9_clusters.Rdata")
+
+## COSG 
+marker_cosg <- cosg(modi_FibHSE, 
+                    groups='all', 
+                    assay='RNA',  ## original matrix
+                    slot='data', ## use the normalized count
+                    mu=1,
+                    n_genes_user=50) # Number of top ranked genes returned 
+
+## extract and combine top10 genes 
+num=10 # define the top gene number
+top_10_genes <- unlist(lapply(1:9, function(i) head(marker_cosg$names[,i], num))) # 90 top genes for 9 clusters
+
+# save total top10 genes
+save(top_10_genes, file="R4_9.2_filtered_FibHSE_kc_total_cluster_top_10.Rdata")
+```
+
+```{r}
+## heatmap
+library(Scillus)
+library(tidyverse)
+library(Seurat)
+library(magrittr)
+library(tidyverse)
+library('magrittr')
+library(R.utils)
+
+# define the 'RNA' as default. 
+DefaultAssay(modi_FibHSE) <- "RNA"
+  ## scale full gene.
+    all.genes <- rownames(modi_FibHSE)
+    modi_FibHSE <- ScaleData(modi_FibHSE, features = all.genes)
+
+pdf("R4_9.2_Cluster_FibHSE_top10_heatmap.pdf",width = 7, height =10)
+
+cluster_color= c(
+"BAS-I"="#6BD76BCC",
+"BAS-II"="#749B58CC"  ,
+"BAS-III"="#CDDEB7CC",
+"BAS-IV"="#466983CC" ,
+"BAS-V"="#5DB1DDCC",
+"SPN-IV"= "#F0E685CC" ,
+"GRN-I"= "#AE1F63CC",
+"GRN-II"= "#802268CC",
+"GRN-III"= "#D595A7CC")
+
+plot_heatmap(dataset = modi_FibHSE,
+             markers = top_10_genes,
+             sort_var = c("cell_type_0.7"), # first and 2nd row column annotation
+             anno_var = c("cell_type_0.7"), # show which annotation
+             anno_colors = list(cluster_color),
+            hm_limit = c(-2, 0, 2),
+            row_font_size = 5 # change the font size.
+            ) # the value filling color)
+
+dev.off()
+```
+
+![](images/Screenshot%202024-09-27%20at%206.10.36%E2%80%AFAM.png){width="416"}
+
+### 9.3-PmtHEE
+
+```{r}
+library(Seurat)
+library(ggpubr)
+library(ggplot2)
+# remotes::install_github(repo = 'genecell/COSGR')
+library(COSG)
+library(ggpubr)
+
+## subset for FsEpi KC
+kc_id <- subset(selected_kc@meta.data, study=="PmtHEE") 
+PmtHEE_seurat <- subset(selected_kc, cells=row.names(kc_id))
+
+Idents(PmtHEE_seurat) <- "cell_type_0.7"
+DefaultAssay(PmtHEE_seurat)<- 'RNA'
+
+# When I removed the celltype that had only 1 cell, it worked! Besides, I think calculate markers for a celltype with small population (less than 10 cells or more) may be not reliable, so I filtered these celltypes before running cosg.
+
+# filter the group, remove low cell number grouo for marker gene calculation, keep ony clusters >=10 cells
+groups_selected <- names(table(PmtHEE_seurat$cell_type_0.7)[table(PmtHEE_seurat$cell_type_0.7) >= 10]) # only 10 groups
+
+clusters_of_interest <- groups_selected
+  # [1] "BAS-II"  "BAS-III" "BAS-IV"  "BAS-V"   "SPN-I"   "SPN-III" "SPN-IV"  "GRN-I"   "GRN-II" "GRN-III"
+
+new_filtered_seurat <- subset(PmtHEE_seurat, 
+                       cell_type_0.7 %in% clusters_of_interest)
+
+modi_PmtHEE<-new_filtered_seurat # filtered FibHSE
+
+save(modi_PmtHEE,file="R4_9.3_filtered_PmtHEE_10_clusters.Rdata")
+
+## COSG 
+marker_cosg <- cosg(modi_PmtHEE, 
+                    groups='all', 
+                    assay='RNA',  ## original matrix
+                    slot='data', ## use the normalized count
+                    mu=1,
+                    n_genes_user=50) # Number of top ranked genes returned 
+
+## extract and combine top10 genes 
+num=10 # define the top gene number
+top_10_genes <- unlist(lapply(1:10, function(i) head(marker_cosg$names[,i], num))) # 100 top genes for 10 clusters
+
+# save total top10 genes
+save(top_10_genes, file="R4_9.3_filtered_PmtHEE_kc_total_cluster_top_10.Rdata")
+```
+
+```{r}
+## heatmap
+library(Scillus)
+library(tidyverse)
+library(Seurat)
+library(magrittr)
+library(tidyverse)
+library('magrittr')
+library(R.utils)
+
+# define the 'RNA' as default. 
+DefaultAssay(modi_PmtHEE) <- "RNA"
+  ## scale full gene.
+    all.genes <- rownames(modi_PmtHEE)
+    modi_PmtHEE <- ScaleData(modi_PmtHEE, features = all.genes)
+
+cluster_color= c(
+"BAS-II"="#749B58CC"  ,
+"BAS-III"="#CDDEB7CC",
+"BAS-IV"="#466983CC" ,
+"BAS-V"="#5DB1DDCC",
+"SPN-I"= "#924822CC",
+"SPN-III"= "#E4AF69CC",
+"SPN-IV"= "#F0E685CC" ,
+"GRN-I"= "#AE1F63CC",
+"GRN-II"= "#802268CC",
+"GRN-III"= "#D595A7CC")
+    
+pdf("R4_9.3_Cluster_PmtHEE_top10_heatmap.pdf",width = 7, height =10)
+
+plot_heatmap(dataset = modi_PmtHEE,
+             markers = top_10_genes,
+             sort_var = c("cell_type_0.7"), # first and 2nd row column annotation
+             anno_var = c("cell_type_0.7"), # show which annotation
+             anno_colors = list(cluster_color),
+            hm_limit = c(-2, 0, 2),
+            row_font_size = 5 # change the font size.
+            ) # the value filling color)
+
+dev.off()
+```
+
+## 10- [ROGUE] Redo the purity analysis
+
+```{r}
+library(ROGUE)
+library(ggplot2)
+library(tidyverse)
+
+#> seurat obj
+selected_kc-> selected_inte # the seurat integrated object
+
+#> extract count matrix
+DefaultAssay(selected_inte) <- "RNA" 
+
+expr_seurat_inte <- GetAssayData(selected_inte , slot="counts") %>% as.matrix() # rowname is gene name, col name is cell_id
+
+#> Expression entropy model
+ent.res <- SE_fun(expr_seurat_inte)  # To apply the S-E model, we calculate the expression entropy for each gene 
+head(ent.res)
+
+##> calculate rogue
+rogue.value <- CalculateRogue(ent.res, platform = "UMI")
+rogue.value # 0.32, thus confirming their heterogeneity... >0.9 is 
+
+#> Calculate the ROGUE value  for each study
+rogue.res <- rogue(expr_seurat_inte, 
+                   labels = selected_inte$study, 
+                   samples = selected_inte$cell_type_0.7, 
+                   platform = "UMI", span = 0.6)
+
+rogue.res
+```
+
+```{r}
+# convert matirx count
+library(reshape2)
+rogue.res-> wide_data
+wide_data$cell_type_0.7<-rownames(wide_data)
+
+long_data<- melt(wide_data,
+                 id.vars = c("cell_type_0.7"),
+                 measure.vars = c(1:3),
+                 variable.name = "study",
+                 value.name = "ROGUE")
+```
+
+```{r}
+## visualization>>>>> 
+
+## personalize your x order
+long_data$"cell_type_0.7" <- factor(long_data$"cell_type_0.7", levels = c(
+"BAS-I",
+"BAS-II",
+"BAS-III",
+"BAS-IV",
+"BAS-V",
+"SPN-I",
+"SPN-II",
+"SPN-III",
+"SPN-IV" ,
+"GRN-I",
+"GRN-II",
+"GRN-III"))
+
+## plot
+p <- ggplot(long_data, aes(x= cell_type_0.7, y=ROGUE)) + # fill the box the color by Condition
+      # Box plot with multicolor dots by Replicates
+  scale_y_continuous(limits = c(0, 1),  # Replace 0 and 1 with your desired range
+                    breaks = seq(0, 1, by = 0.25)) +  # Adjust breaks as needed
+   geom_boxplot(colour = "grey", # outline color for boxplot
+                width = 0.4) +   # the box width
+  
+  
+        geom_point(aes(color=factor(study)),
+                   size = 1, # dot size
+                   position=position_dodge(width=0.4))+
+  
+  # Custom colors for Study
+      scale_color_manual(values = c("FibHSE" = "#FF0000", 
+                                    "FsEpi" = "#0CA14A", 
+                                    "PmtHEE" = "blue")) +
+      
+      # axis ANNOTATION
+        labs(title="ROGUE index for cell_type",
+             x="", 
+             y = "ROGUE Index") + 
+  
+      # theme styple
+        theme_classic() + ## define the theme
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggsave("R4_10_purity_integrated_seurat.pdf",
+       plot = p, 
+       width = 5, height = 2)
+```
+
+![](images/Screenshot%202024-09-27%20at%206.58.38%E2%80%AFAM.png)

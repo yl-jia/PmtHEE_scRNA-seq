@@ -1,0 +1,248 @@
+---
+title: "Reitermaier_2021"
+author: "Yelon"
+date: "2023-03-06"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r}
+library(Seurat)
+set.seed(805181) ## for repeatability of cluster mapping.
+
+## input is seurat
+load("R4_6.3_KC_only_processed.Rdata")
+KC_only_processed-> selected_kc
+```
+
+# cytotrace [first version]
+
+## 3- run cytotrace
+
+```{r}
+library(Seurat)
+library(tidyverse)
+library(patchwork)
+library(ggpubr)
+library(clustree) ## for resolution tree check
+library(limma) ## for FindMarker gene more efficient.
+library(dplyr)
+
+set.seed(805181) ## for repeatability of cluster mapping.
+
+#BiocManager::install("sva")
+# library(sva)
+# devtools::install_local("CytoTRACE_0.3.3.tar.gz")
+library(CytoTRACE)
+
+  ## install Python dependencies "scanoramaCT" and "numpy"
+  ## important for across multiple, heterogeneous scRNA-seq batches/dataset.
+    # pip install scanoramaCT
+    # pip install numpy
+  ## define the right path for pyhton "~/miniconda3/bin/python3.9"
+
+# ********************####
+# <b> run analysis ####
+
+  ## [input the seurat_obj] ####
+
+selected_kc@meta.data -> seurat_metadata # metadata
+table(seurat_metadata$cell_type_0.7) # check
+
+phe <- seurat_metadata$cell_type_0.7
+phe = as.character(phe)
+
+names(phe) <- rownames(seurat_metadata)
+
+## [prepare the count matrix] #### 
+matrix_seurat <- as.matrix(selected_kc@assays$RNA@counts)
+
+  ## [run CytoTRACE] ####
+results <- CytoTRACE(mat = matrix_seurat, ncores = 8)
+    # using 'ncores' (default = 1)
+    # using 'subsamplingsize' (default = 1,000 cells)
+```
+
+## 4- plot
+
+```{r}
+ ## 2D embeddings for UMAP from Seurat clustering
+myumap <- Embeddings(object = selected_kc[['umap']])
+
+# Output and visulization #### 
+    # for the gene plot not so necessary
+if(F){plotCytoGenes(results, numOfGenes = 10,
+               colors = c("darkred", "navyblue"),
+              outputDir = "CytoTRACE_")
+}
+
+if(F) {cluster_color= c(
+"BAS-I"="#6BD76BCC",
+"BAS-II"="#749B58CC"  ,
+"BAS-III"="#CDDEB7CC",
+"BAS-IV"="#466983CC" ,
+"BAS-V"="#5DB1DDCC",
+"SPN-I"= "#924822CC",
+"SPN-II"= "#D58F5CCC",
+"SPN-III"= "#E4AF69CC",
+"SPN-IV"= "#F0E685CC" ,
+"GRN-I"= "#AE1F63CC",
+"GRN-II"= "#802268CC",
+"GRN-III"= "#D595A7CC")
+}
+
+library(RColorBrewer)
+
+# plot 2
+cols_2 = rev(colorRampPalette(c("blue","green","yellow","orange","red"))(100))
+pdf("R6_4_cytotrace_KC_2.pdf",width = 23, height =7)
+p1<- plotCytoTRACE(results, 
+              phenotype = phe,
+              gene = "KRT14", 
+              colors = cols_2, # DEFINE The customized colors
+              emb = myumap,
+              outputDir = "R6_CytoTRACE_KC_")
+dev.off()
+
+# <d> save data ####
+save(phe, myumap, results, file = "R6_CytoTRACE_all_KC.Rdata") 
+```
+
+![](images/Screenshot%202024-10-04%20at%204.26.30%E2%80%AFPM.png)
+
+## 5- run cytotrace for each sample
+
+```{r}
+## split the integrated sample by study
+kc_list <- SplitObject(selected_kc, split.by = "study")
+# save
+save(kc_list, file = "R6_5_seurat_KC_list.Rdata")
+```
+
+### 5.1- FsEpi cytotrace
+
+```{r}
+kc_list$FsEpi-> selected_sub # FsEpi
+
+selected_sub@meta.data -> seurat_metadata # metadata
+table(seurat_metadata$cell_type_0.7) # check
+
+phe <- seurat_metadata$cell_type_0.7
+phe = as.character(phe)
+
+names(phe) <- rownames(seurat_metadata)
+
+## [prepare the count matrix] #### 
+matrix_seurat <- as.matrix(selected_sub@assays$RNA@counts)
+
+  ## [run CytoTRACE] ####
+results <- CytoTRACE(mat = matrix_seurat, ncores = 8)
+    # using 'ncores' (default = 1)
+    # using 'subsamplingsize' (default = 1,000 cells)
+
+## 2D embeddings for UMAP from Seurat clustering
+myumap <- Embeddings(object = selected_sub[['umap']])
+
+library(RColorBrewer)
+# plot 2
+cols_2 = rev(colorRampPalette(c("blue","green","yellow","orange","red"))(100))
+pdf("R6_5.1_cytotrace_KC_2_FsEpi.pdf",width = 24, height =7)
+p1<- plotCytoTRACE(results, 
+              phenotype = phe,
+              gene = "KRT14", 
+              colors = cols_2, # DEFINE The customized colors
+              emb = myumap,
+              outputDir = "R6_CytoTRACE_FsEpi_")
+dev.off()
+
+
+# <d> save data ####
+save(phe, myumap, results, file = "R6_CytoTRACE_FsEpi.Rdata") 
+```
+
+![](images/Screenshot%202024-10-04%20at%204.53.28%E2%80%AFPM.png){width="291"}
+
+### 5.2- PmtHEE
+
+```{r}
+kc_list$PmtHEE-> selected_sub # PmtHEE
+
+selected_sub@meta.data -> seurat_metadata # metadata
+table(seurat_metadata$cell_type_0.7) # check
+
+phe <- seurat_metadata$cell_type_0.7
+phe = as.character(phe)
+
+names(phe) <- rownames(seurat_metadata)
+
+## [prepare the count matrix] #### 
+matrix_seurat <- as.matrix(selected_sub@assays$RNA@counts)
+
+  ## [run CytoTRACE] ####
+results <- CytoTRACE(mat = matrix_seurat, ncores = 8)
+    # using 'ncores' (default = 1)
+    # using 'subsamplingsize' (default = 1,000 cells)
+
+## 2D embeddings for UMAP from Seurat clustering
+myumap <- Embeddings(object = selected_sub[['umap']])
+
+library(RColorBrewer)
+# plot 2
+cols_2 = rev(colorRampPalette(c("blue","green","yellow","orange","red"))(100))
+pdf("R6_5.2_cytotrace_KC_2_PmtHEE.pdf",width = 24, height =7)
+p1<- plotCytoTRACE(results, 
+              phenotype = phe,
+              gene = "KRT14", 
+              colors = cols_2, # DEFINE The customized colors
+              emb = myumap,
+              outputDir = "R6_CytoTRACE_PmtHEE_")
+dev.off()
+
+# <d> save data ####
+save(phe, myumap, results, file = "R6_CytoTRACE_PmtHEE.Rdata") 
+```
+
+![](images/Screenshot%202024-10-04%20at%208.28.33%E2%80%AFPM.png){width="372"}
+
+### 5.3-FibHSE
+
+```{r}
+kc_list$FibHSE-> selected_sub # PmtHEE
+
+selected_sub@meta.data -> seurat_metadata # metadata
+table(seurat_metadata$cell_type_0.7) # check
+
+phe <- seurat_metadata$cell_type_0.7
+phe = as.character(phe)
+
+names(phe) <- rownames(seurat_metadata)
+
+## [prepare the count matrix] #### 
+matrix_seurat <- as.matrix(selected_sub@assays$RNA@counts)
+
+  ## [run CytoTRACE] ####
+results <- CytoTRACE(mat = matrix_seurat, ncores = 8)
+    # using 'ncores' (default = 1)
+    # using 'subsamplingsize' (default = 1,000 cells)
+
+## 2D embeddings for UMAP from Seurat clustering
+myumap <- Embeddings(object = selected_sub[['umap']])
+
+library(RColorBrewer)
+# plot 2
+cols_2 = rev(colorRampPalette(c("blue","green","yellow","orange","red"))(100))
+pdf("R6_5.3_cytotrace_KC_2_FibHSE.pdf",width = 24, height =7)
+p1<- plotCytoTRACE(results, 
+              phenotype = phe,
+              gene = "KRT14", 
+              colors = cols_2, # DEFINE The customized colors
+              emb = myumap,
+              outputDir = "R6_CytoTRACE_FibHSE_")
+dev.off()
+
+# <d> save data ####
+save(phe, myumap, results, file = "R6_CytoTRACE_FibHSE.Rdata") 
+```
+
+![](images/Screenshot%202024-10-04%20at%208.37.47%E2%80%AFPM.png){width="334"}

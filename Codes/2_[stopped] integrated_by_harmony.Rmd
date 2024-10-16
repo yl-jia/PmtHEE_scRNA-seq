@@ -1,0 +1,1428 @@
+---
+title: "Reitermaier_2021"
+author: "Yelon"
+date: "2023-03-06"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+## 1_Integration by harmony
+
+```{r}
+library(Rcpp) # necessary 1st
+library(harmony) ## as 2nd
+library(Seurat) # 3rd
+library(ggpubr)
+library(limma)
+```
+
+```{r}
+load("1.1.2_processed_merged_FibHSE_PmtHEE_FsEpi.Rdata")
+selected_merged -> All_merged_obj # processed
+
+## Run harmony
+    All_integrated <- RunHarmony(All_merged_obj, 
+                                 group.by.vars = "orig.ident")
+
+## After integration ## 
+    ## UMAP
+    All_integrated <- RunUMAP(All_integrated, reduction = "harmony", dims = pc.num)
+    ## t-SNE
+    All_integrated <- RunTSNE(All_integrated, reduction = "harmony", dims = pc.num)
+    
+    All_integrated <- FindNeighbors(All_integrated, reduction = "harmony", dims = pc.num)
+    All_integrated <- FindClusters(All_integrated, resolution = cluster.res)
+ 
+## save   
+    All_integrated-> integrated_harmony
+    save(integrated_harmony, file = "2_processed_integrated_by_harmony.Rdata")
+    # load("2_processed_integrated_by_harmony.Rdata")
+```
+
+```{r}
+# [plot] ####
+p1<-DimPlot(integrated_harmony, reduction = "umap",label = T, pt.size = 0.3)
+
+ggsave("2_umap_integrated_obj_harmony.pdf", plot = p1, width = 7, height =5) 
+```
+
+![](images/Screenshot%202024-08-13%20at%2010.23.51%E2%80%AFAM.png){width="342"}
+
+```{r}
+# condition check
+integrated_harmony-> selected_harmony
+
+p2<-DimPlot(selected_harmony, 
+            reduction = "umap",
+            label = T, 
+            pt.size = 0.3, 
+            split.by = "study",
+            ncol = 2)
+
+ggsave("2_umap_integrated_study_split.pdf", 
+       plot = p2, width = 10, height =10 )
+
+## 
+p2<-DimPlot(selected_harmony, 
+            reduction = "umap",
+            label = T, 
+            pt.size = 0.3, 
+            split.by = "study",
+            ncol = 3)
+
+ggsave("2_umap_integrated_study_split_2.pdf", 
+       plot = p2, width = 15, height =5 )
+```
+
+![](images/Screenshot%202024-08-12%20at%2011.56.03%E2%80%AFAM.png){width="403"}
+
+![](images/Screenshot%202024-08-13%20at%2010.27.32%E2%80%AFAM.png)
+
+### 1.1 [ROGUE]Purity check
+
+```{r}
+library(ROGUE)
+library(ggplot2)
+library(tidyverse)
+
+# INPUT THE demo dataset
+```
+
+```{r}
+#> seurat obj
+selected_harmony # the seurat integrated object
+
+#> extract count matrix
+DefaultAssay(selected_harmony) <- "RNA" 
+
+expr_seurat_harmony <- GetAssayData(selected_harmony , slot="counts") %>% as.matrix() # rowname is gene name, col name is cell_id
+
+#> Expression entropy model
+ent.res <- SE_fun(expr_seurat_harmony)  # To apply the S-E model, we calculate the expression entropy for each gene 
+head(ent.res)
+
+##> calculate rogue
+rogue.value <- CalculateRogue(ent.res, platform = "UMI")
+rogue.value # 0.32, thus confirming their heterogeneity... >0.9 is 
+
+#> Calculate the ROGUE value  for each study
+rogue.res <- rogue(expr_seurat_harmony, labels = selected_harmony$study, samples = selected_harmony$seurat_clusters, platform = "UMI", span = 0.6)
+
+rogue.res-> rogue.res_harmony
+
+save(rogue.res_harmony, file = "2.1.1_rogue.res_harmony.Rdata")
+```
+
+![](images/Screenshot%202024-08-13%20at%2010.38.24%E2%80%AFAM.png){width="182"}
+
+```{r}
+### replot boxplot with colored sample dots
+## 1> need transfrom wide data to long data
+library(reshape2)
+
+load("1.3.1_rogue.res_harmony.Rdata")
+rogue.res_harmony-> wide_data
+wide_data$seurat_clusters<-rownames(wide_data)
+
+long_data<- melt(wide_data,
+                 id.vars = c("seurat_clusters"),
+                 measure.vars = c(1:3),
+                 variable.name = "study",
+                 value.name = "ROGUE")
+```
+
+```{r}
+## personalize your x order
+long_data$seurat_clusters <- factor(long_data$seurat_clusters, levels = c("0","1","2","3","4","5","6","7","8","9","10","11","12","13","14"))
+
+mean_rogue <- mean(long_data$ROGUE, na.rm = TRUE)
+
+## plot
+p <- ggplot(long_data, aes(x= seurat_clusters, y=ROGUE)) + # fill the box the color by Condition
+      # Box plot with multicolor dots by Replicates
+  scale_y_continuous(limits = c(0, 1),  # Replace 0 and 1 with your desired range
+                    breaks = seq(0, 1, by = 0.25)) +  # Adjust breaks as needed
+   geom_boxplot(colour = "grey", # outline color for boxplot
+                width = 0.4) +   # the box width
+  
+  
+        geom_point(aes(color=factor(study)),
+                   size = 1, # dot size
+                   position=position_dodge(width=0.4))+
+  
+  # Custom colors for Study
+      scale_color_manual(values = c("FibHSE" = "#FF0000", 
+                                    "FsEpi" = "#0CA14A", 
+                                    "PmtHEE" = "blue")) +
+      
+      # axis ANNOTATION
+        labs(title="ROGUE index for clusters",
+             x="", 
+             y = "ROGUE Index") + 
+  
+   # Add the mean ROGUE index line
+  geom_hline(yintercept = mean_rogue, linetype = "dashed", color = "darkgrey") +
+  
+    # Add annotation for the mean value on the right side of the dotted line
+  annotate("text", x = 0.5, 
+           y = 0.05 , 
+           label = paste("ROGUE mean:", round(mean_rogue, 3)), 
+           vjust = -0.5, hjust = -0.1, color = "darkgrey",
+           size = 2) +
+
+    # Theme styple
+  theme_classic() ## define the theme
+
+ggsave("2.1.1_purity_integrated_harmony.pdf",
+       plot = p, 
+       width = 5, height = 2)
+```
+
+![](images/Screenshot%202024-08-13%20at%204.24.21%E2%80%AFPM.png){width="383"}
+
+### 1.2_General marker gene check
+
+```{r}
+# Harmony_integrated
+
+DefaultAssay(selected_harmony) <- "RNA" 
+## define the marker genes.
+known_marker= c(
+  ## Fibroblast
+  "COL1A1", "DCN",
+  ## Mitotic KC: [ Proliferating KC = Mitotic cells = proliferative stem cells]
+  "MKI67", "CCNB1","PCNA",
+  
+  # Basal keratinocyte (BK) = Undifferentiated keratinocytes
+  "KRT14", "KRT5", "KRT15", "COL17A1",
+    # Undifferentiated epidermal basal cells encompassing three quiescent (BC1–3) and proliferating (MC) subpopulations.
+    # Expression of keratin 14 (K14, a marker for basal keratinocytes [Fuchs and Green, 1980]) and K15(which is enriched in stable basal cells [Porter et al., 2000]
+
+  ## Spinous KC [stratum spinosum-layer]
+  "KRT10","KRT1","DSG1",
+  ## Granular KC
+  "FLG", "SPINK5",
+    # KRT10, KRT1 can be both high in SC and GC, check only GC marker to separate GC from SC. Late differentiation markers, including LORICRIN, FLG, and SPINK5
+  "KRT8","KRT18","KRT20", # Merkle cells 
+  "KRT17","CD200", # TD columnar keratinocytes
+  "MPZ", "GFRA3",# Schwann cells 
+  "PECAM1", "VWF","SELE", # endo
+  "CD207",  # Langerhans
+  "RGS5", # pericyte
+  "ACTA2", # muscle cells
+  "PMEL", "MLANA", # Melanocyte
+  # Immune cells
+  "PTPRC")
+```
+
+```{r}
+p1<- FeaturePlot(selected_harmony,
+            features = unique(known_marker),
+            cols = colorRampPalette(c("blue","green","yellow","orange","red"))(100),
+            ncol = 5,
+            pt.size = 0.05,
+            min.cutoff = 'q2',
+            max.cutoff = 'q98')
+
+ggsave("2.1.2_marker_gene_harmony_integrated.pdf", 
+       plot = p1, 
+       width = 25, 
+       height =20 ) 
+```
+
+![](images/Screenshot%202024-08-13%20at%205.23.36%E2%80%AFPM.png){width="454"}
+
+### 1.3 Check doublets
+
+```{r}
+## check first the doublet annotation
+p1<-DimPlot(selected_harmony, 
+            reduction = "umap",
+            group.by = "scDblFinder_DoubletFinder.class",
+            label = F, 
+            pt.size = 0.3)
+
+## 
+ggsave("2.1.3_umap_integrated_obj_harmony_doublets_anno.pdf", 
+       plot = p1, width = 7, height =5) 
+```
+
+![](images/Screenshot%202024-08-13%20at%2011.16.04%E2%80%AFAM.png){width="341"}
+
+```{r}
+p1<-DimPlot(selected_harmony, 
+            reduction = "umap",
+            group.by = "scDblFinder_DoubletFinder.class",
+            label = F, 
+            split.by = "study",
+            pt.size = 0.3)
+
+ggsave("2.1.3_umap_integrated_obj_harmony_doublets_split.pdf", 
+       plot = p1, width = 21, height =5) 
+```
+
+```{r}
+## feature plot check mt percentage, nRNA and nFeature
+library(ggplot2)
+DefaultAssay(selected_harmony) <- "RNA" 
+
+p1<- FeaturePlot(selected_harmony, 
+                 features=c("percent.mt"), pt.size=0.5, 
+                 cols = colorRampPalette(c("blue","green","yellow","orange","red"))(100),
+                 split.by = "study",
+                 ncol = 3)
+
+p2<- FeaturePlot(selected_harmony, 
+                 features=c("nCount_RNA"), pt.size=0.5, 
+                 cols = colorRampPalette(c("blue","green","yellow","orange","red"))(100),
+                 split.by = "study",
+                 ncol = 3)
+
+
+p3<- FeaturePlot(selected_harmony, 
+                 features=c("nFeature_RNA"), pt.size=0.5, 
+                 cols = colorRampPalette(c("blue","green","yellow","orange","red"))(100),
+                 split.by = "study",
+                 ncol = 3)
+
+p123<- ggarrange(p1,p2,p3,ncol = 1)
+
+ggsave(p123,filename = "2.1.3_check_doublet_harmony_plot.pdf",width = 15, height =15)
+```
+
+![](images/Screenshot%202024-08-13%20at%208.41.57%E2%80%AFPM.png)
+
+```{r}
+library(ggplot2)
+DefaultAssay(selected_harmony) <- "RNA" 
+
+p1<- FeaturePlot(selected_harmony, 
+                 features=c("percent.mt"), pt.size=0.5, 
+                 cols = colorRampPalette(c("blue","green","yellow","orange","red"))(100))
+
+p2<- FeaturePlot(selected_harmony, 
+                 features=c("nCount_RNA"), pt.size=0.5, 
+                 cols = colorRampPalette(c("blue","green","yellow","orange","red"))(100))
+
+
+p3<- FeaturePlot(selected_harmony, 
+                 features=c("nFeature_RNA"), pt.size=0.5, 
+                 cols = colorRampPalette(c("blue","green","yellow","orange","red"))(100))
+
+p123<- ggarrange(p1,p2,p3,ncol = 3)
+
+ggsave(p123,filename = "2.1.3_check_doublet_harmony_plot_2.pdf",width = 15, height =5)
+```
+
+![](images/Screenshot%202024-08-13%20at%208.45.20%E2%80%AFPM.png){width="333"}
+
+### 1.4 Resolution check [0.5/0.7/0.9]
+
+```{r}
+        ## need rerun from FindCluster, using differernt "resolution"
+        # res.used <- seq(0.1,1, by=0.2)
+        res.used<- c(0.7,0.9,1.1)
+        # [1] 0.7 0.9. # 0.5 did before
+        
+        # Loop over and perform clustering of different resolutions 
+        for(i in res.used){
+        selected_harmony <- FindClusters(selected_harmony, resolution = res.used)
+        }
+```
+
+```{r}
+##  Draw the UMAP plot for different resolution ####
+
+      p_0.5 = DimPlot(selected_harmony, 
+                      reduction = "umap",
+                      label = T, group.by = "RNA_snn_res.0.5")
+
+      p_0.7 = DimPlot(selected_harmony, 
+                      reduction = "umap",
+                      label = T, group.by = "RNA_snn_res.0.7")
+      p_0.9 = DimPlot(selected_harmony, 
+                      reduction = "umap",
+                      label = T, group.by = "RNA_snn_res.0.9")
+      p_1.1 = DimPlot(selected_harmony, 
+                      reduction = "umap",
+                      label = T, group.by = "RNA_snn_res.1.1")
+
+      plot_res<-ggarrange(p_0.5,p_0.7,p_0.9,p_1.1,
+                          labels = c("UMAP_res_0.5","UMAP_res_0.7","UMAP_res_0.9","UMAP_res_0.5"), 
+                          ncol = 4, nrow=1,
+                          font.label = list(size = 10, color = "red", face = "italic"))
+
+      ggsave("2.1.4_Resolution_UMAP_harmony_cluster.pdf", plot = plot_res, width = 22, height = 5)
+```
+
+![](images/Screenshot%202024-08-14%20at%209.40.41%E2%80%AFAM.png)
+
+### 1.5 [ROGUE] recheck the purity at diff. res
+
+```{r}
+library(ROGUE)
+library(ggplot2)
+library(tidyverse)
+
+#> seurat obj
+selected_harmony # the seurat integrated object
+
+#> extract count matrix
+DefaultAssay(selected_harmony) <- "RNA" 
+
+expr_seurat_inte <- GetAssayData(selected_harmony , slot="counts") %>% as.matrix() # rowname is gene name, col name is cell_id
+
+#> Expression entropy model
+ent.res <- SE_fun(expr_seurat_inte)  # To apply the S-E model, we calculate the expression entropy for each gene 
+head(ent.res)
+
+##> calculate rogue
+rogue.value <- CalculateRogue(ent.res, platform = "UMI")
+rogue.value # 0.32, thus confirming their heterogeneity... >0.9 is 
+
+#> Calculate the ROGUE value  for each study
+rogue.res_0.5 <- rogue(expr_seurat_inte, labels = selected_harmony$study, samples = selected_harmony$RNA_snn_res.0.5, platform = "UMI", span = 0.6)
+
+rogue.res_0.7 <- rogue(expr_seurat_inte, labels = selected_harmony$study, samples = selected_harmony$RNA_snn_res.0.7, platform = "UMI", span = 0.6)
+
+rogue.res_0.9 <- rogue(expr_seurat_inte, labels = selected_harmony$study, samples = selected_harmony$RNA_snn_res.0.9, platform = "UMI", span = 0.6)
+
+rogue.res_1.1 <- rogue(expr_seurat_inte, labels = selected_harmony$study, samples = selected_harmony$RNA_snn_res.1.1, platform = "UMI", span = 0.6)
+
+save(rogue.res_0.5,rogue.res_0.7,rogue.res_0.9,rogue.res_1.1,file = "2.1.5_harmony_integrated_purity_res_rogue.res.Rdata")
+```
+
+```{r}
+#### replot boxplot with colored sample dots
+## 1> need transfrom wide data to long data
+library(reshape2)
+
+rogue.res_0.5-> wide_data_0.5
+rogue.res_0.7-> wide_data_0.7
+rogue.res_0.9-> wide_data_0.9
+rogue.res_1.1-> wide_data_1.1
+
+wide_data_0.5$seurat_clusters <- rownames(wide_data_0.5)
+wide_data_0.7$seurat_clusters <- rownames(wide_data_0.7)
+wide_data_0.9$seurat_clusters <- rownames(wide_data_0.9)
+wide_data_1.1$seurat_clusters <- rownames(wide_data_1.1)
+
+long_data_0.5<- melt(wide_data_0.5,
+                 id.vars = c("seurat_clusters"),
+                 measure.vars = c(1:3),
+                 variable.name = "study",
+                 value.name = "ROGUE")
+long_data_0.7<- melt(wide_data_0.7,
+                 id.vars = c("seurat_clusters"),
+                 measure.vars = c(1:3),
+                 variable.name = "study",
+                 value.name = "ROGUE")
+long_data_0.9<- melt(wide_data_0.9,
+                 id.vars = c("seurat_clusters"),
+                 measure.vars = c(1:3),
+                 variable.name = "study",
+                 value.name = "ROGUE")
+
+long_data_1.1<- melt(wide_data_1.1,
+                 id.vars = c("seurat_clusters"),
+                 measure.vars = c(1:3),
+                 variable.name = "study",
+                 value.name = "ROGUE")
+```
+
+```{r}
+long_data_0.5$seurat_clusters <- factor(long_data_0.5$seurat_clusters, levels = c("0","1","2","3","4","5","6","7","8","9","10","11","12","13","14"))
+
+long_data_0.7$seurat_clusters <- factor(long_data_0.7$seurat_clusters, levels = c("0","1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16"))
+
+long_data_0.9$seurat_clusters <- factor(long_data_0.9$seurat_clusters, levels = c("0","1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18","19"))
+
+long_data_1.1$seurat_clusters <- factor(long_data_1.1$seurat_clusters, levels = c("0","1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18","19","20","21"))
+
+# 1. Calculate the mean ROGUE index for all samples and clusters
+mean_rogue_0.5 <- mean(long_data_0.5$ROGUE, na.rm = TRUE)
+mean_rogue_0.7 <- mean(long_data_0.7$ROGUE, na.rm = TRUE)
+mean_rogue_0.9 <- mean(long_data_0.9$ROGUE, na.rm = TRUE)
+mean_rogue_1.1 <- mean(long_data_1.1$ROGUE, na.rm = TRUE)
+
+## plot
+p_0.5 <- ggplot(long_data_0.5, aes(x= seurat_clusters, y=ROGUE)) + # fill the box the color by Condition
+      # Box plot with multicolor dots by Replicates
+  scale_y_continuous(limits = c(0, 1), 
+                    breaks = seq(0, 1, by = 0.25)) +  
+  geom_boxplot(colour = "grey", 
+                width = 0.4) +
+  geom_point(aes(color=factor(study)),
+                   size = 1, # dot size
+                   position=position_dodge(width=0.4))+
+  scale_color_manual(values = c("FibHSE" = "#FF0000", 
+                                "FsEpi" = "#0CA14A", 
+                                "PmtHEE" = "blue")) +
+  labs(title="ROGUE index for res_0.5",
+             x="", 
+             y = "ROGUE Index") + 
+  # Add the mean ROGUE index line
+  geom_hline(yintercept = mean_rogue_0.5, linetype = "dashed", color = "darkgrey") +
+  
+    # Add annotation for the mean value on the right side of the dotted line
+  annotate("text", x = 0.5, 
+           y = 0.05 , 
+           label = paste("ROGUE mean:", round(mean_rogue_0.5, 3)), 
+           vjust = -0.5, hjust = -0.1, color = "darkgrey",
+           size = 2) +
+
+  theme_classic() ## define the theme
+
+p_0.7 <- ggplot(long_data_0.7, aes(x= seurat_clusters, y=ROGUE)) + # fill the box the color by Condition
+      # Box plot with multicolor dots by Replicates
+  scale_y_continuous(limits = c(0, 1), 
+                    breaks = seq(0, 1, by = 0.25)) +  
+  geom_boxplot(colour = "grey", 
+                width = 0.4) +
+  geom_point(aes(color=factor(study)),
+                   size = 1, # dot size
+                   position=position_dodge(width=0.4))+
+  scale_color_manual(values = c("FibHSE" = "#FF0000", 
+                                "FsEpi" = "#0CA14A", 
+                                "PmtHEE" = "blue")) +
+  labs(title="ROGUE index for res_0.7",
+             x="", 
+             y = "ROGUE Index") + 
+   # Add the mean ROGUE index line
+  geom_hline(yintercept = mean_rogue_0.7, linetype = "dashed", color = "darkgrey") +
+  
+    # Add annotation for the mean value on the right side of the dotted line
+  annotate("text", x = 0.5, 
+           y = 0.05 , 
+           label = paste("ROGUE mean:", round(mean_rogue_0.7, 3)), 
+           vjust = -0.5, hjust = -0.1, color = "darkgrey",
+           size = 2) +
+  theme_classic() ## define the theme
+
+p_0.9 <- ggplot(long_data_0.9, aes(x= seurat_clusters, y=ROGUE)) + # fill the box the color by Condition
+      # Box plot with multicolor dots by Replicates
+  scale_y_continuous(limits = c(0, 1), 
+                    breaks = seq(0, 1, by = 0.25)) +  
+  geom_boxplot(colour = "grey", 
+                width = 0.4) +
+  geom_point(aes(color=factor(study)),
+                   size = 1, # dot size
+                   position=position_dodge(width=0.4))+
+  scale_color_manual(values = c("FibHSE" = "#FF0000", 
+                                "FsEpi" = "#0CA14A", 
+                                "PmtHEE" = "blue")) +
+  labs(title="ROGUE index for res_0.9",
+             x="", 
+             y = "ROGUE Index") + 
+   # Add the mean ROGUE index line
+  geom_hline(yintercept = mean_rogue_0.9, linetype = "dashed", color = "darkgrey") +
+  
+    # Add annotation for the mean value on the right side of the dotted line
+  annotate("text", x = 0.5, 
+           y = 0.05 , 
+           label = paste("ROGUE mean:", round(mean_rogue_0.9, 3)), 
+           vjust = -0.5, hjust = -0.1, color = "darkgrey",
+           size = 2) +
+  theme_classic() ## define the theme
+
+p_1.1 <- ggplot(long_data_1.1, aes(x= seurat_clusters, y=ROGUE)) + # fill the box the color by Condition
+      # Box plot with multicolor dots by Replicates
+  scale_y_continuous(limits = c(0, 1), 
+                    breaks = seq(0, 1, by = 0.25)) +  
+  geom_boxplot(colour = "grey", 
+                width = 0.4) +
+  geom_point(aes(color=factor(study)),
+                   size = 1, # dot size
+                   position=position_dodge(width=0.4))+
+  scale_color_manual(values = c("FibHSE" = "#FF0000", 
+                                "FsEpi" = "#0CA14A", 
+                                "PmtHEE" = "blue")) +
+  labs(title="ROGUE index for res_1.1",
+             x="", 
+             y = "ROGUE Index") + 
+   # Add the mean ROGUE index line
+  geom_hline(yintercept = mean_rogue_1.1, linetype = "dashed", color = "darkgrey") +
+  
+    # Add annotation for the mean value on the right side of the dotted line
+  annotate("text", x = 0.5, 
+           y = 0.05 , 
+           label = paste("ROGUE mean:", round(mean_rogue_1.1, 3)), 
+           vjust = -0.5, hjust = -0.1, color = "darkgrey",
+           size = 2) +
+  theme_classic() ## define the theme
+
+## merge 
+plot_res<-ggarrange(p_0.5,p_0.7,p_0.9,p_1.1,
+                          ncol = 2, nrow=2)
+
+## save
+ggsave("2.1.5_purity_check_res_05_07_09_11_UMAP_harmony_cluster.pdf", plot = plot_res, width = 10, height = 4)
+    ## choose res= 0.9
+```
+
+![](images/Screenshot%202024-08-14%20at%2010.22.25%E2%80%AFAM.png)
+
+## \>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>
+
+## \>\>\>\>\>\>[Stop here] \>\>\>\>\>\>\>\>\>\>\>\>\>\>\>
+
+#### [Harmony] Highlight conditions
+
+```{r}
+## highlight different conditions
+color_sample=c("#FF6C67","#23B700","#499FFF")
+names(color_sample)=c("FibHSE","FsEpi","PmtHEE")
+
+library(ggplot2)
+# prepare the ggplot data for plot
+pc <- Embeddings(selected_inte,reduction = 'umap') %>% data.frame()
+pc$orig.ident <- selected_inte$orig.ident
+pc$study <- selected_inte$study
+
+
+#>> slelected only FibHSE>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+pc_selected = pc %>% filter(study == "FibHSE")
+p1<-ggplot(pc,aes(UMAP_1,UMAP_2))+
+    # scale_fill_manual(values = cluster_color)+
+    # geom_point(size = 0.1,show.legend = T)+
+   	geom_point(color = "#7F7F7F",
+              size = 0.3, # the 
+              shape=16)+
+   	# geom_point(color = NA, shape=16)+
+
+# plot the density contour on only slected_cells 
+geom_density_2d_filled(data = pc_selected, 
+                       aes(x = UMAP_1, 
+                           y = UMAP_2, 
+                           fill = ..level..), 
+                       bins = 10,  # the number of contours
+                       alpha = 0.7, # the color transparency
+                       colour = NA) + # the contour color
+# define the contour color gradients.
+  scale_fill_manual(values = colorRampPalette(c("#ffffff","#FF6C67"))(10))+
+  
+# to extend the plot and include all data points
+  xlim(min(pc$UMAP_1) - 1, max(pc$UMAP_1) + 1) +
+  ylim(min(pc$UMAP_2) - 1, max(pc$UMAP_2) + 1)+
+  ggtitle("FibHSE") +
+  theme_classic() +
+  NoLegend() 
+
+
+#>> slelected only FsEpi>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+pc_selected = pc %>% filter(study == "FsEpi")
+# the basic plot to draw out all cell points.
+p2<-ggplot(pc,aes(UMAP_1,UMAP_2))+
+    # scale_fill_manual(values = cluster_color)+
+    # geom_point(size = 0.1,show.legend = T)+
+   	geom_point(color = "#7F7F7F",
+              size = 0.3, # the 
+              shape=16)+
+   	# geom_point(color = NA, shape=16)+
+
+# plot the density contour on only slected_cells 
+geom_density_2d_filled(data = pc_selected, 
+                       aes(x = UMAP_1, 
+                           y = UMAP_2, 
+                           fill = ..level..), 
+                       bins = 10,  # the number of contours
+                       alpha = 0.7, # the color transparency
+                       colour = NA) + # the contour color
+  
+# define the contour color gradients.
+  scale_fill_manual(values = colorRampPalette(c("#ffffff","#23B700"))(10))+
+  
+# to extend the plot and include all data points
+  xlim(min(pc$UMAP_1) - 1, max(pc$UMAP_1) + 1) +
+  ylim(min(pc$UMAP_2) - 1, max(pc$UMAP_2) + 1)+
+  ggtitle("FsEpi") +
+  theme_classic() +
+  NoLegend() 
+
+
+
+#>> slelected only PmtHEE>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+pc_selected = pc %>% filter(study == "PmtHEE")
+p3<-ggplot(pc,aes(UMAP_1,UMAP_2))+
+    # scale_fill_manual(values = cluster_color)+
+    # geom_point(size = 0.1,show.legend = T)+
+   	geom_point(color = "#7F7F7F",
+              size = 0.3, # the 
+              shape=16)+
+   	# geom_point(color = NA, shape=16)+
+
+# plot the density contour on only slected_cells 
+geom_density_2d_filled(data = pc_selected, 
+                       aes(x = UMAP_1, 
+                           y = UMAP_2, 
+                           fill = ..level..), 
+                       bins = 10,  # the number of contours
+                       alpha = 0.7, # the color transparency
+                       colour = NA) + # the contour color
+# define the contour color gradients.
+  scale_fill_manual(values = colorRampPalette(c("#ffffff","#499FFF"))(10))+
+  
+# to extend the plot and include all data points
+  xlim(min(pc$UMAP_1) - 1, max(pc$UMAP_1) + 1) +
+  ylim(min(pc$UMAP_2) - 1, max(pc$UMAP_2) + 1)+
+  ggtitle("PmtHEE") +
+  theme_classic() +
+  NoLegend() 
+```
+
+```{r}
+p123<- ggarrange(p1,p2,p3,ncol = 3)
+
+ggsave(filename = "1.1.4_highlight_FibHSE_FsEpi_PmtHEE.pdf",plot = p123, width = 15 , height = 5)
+```
+
+![](images/Screenshot%202024-08-06%20at%209.03.53%E2%80%AFPM.png){width="481"}
+
+```{r}
+library(tidyverse)
+library(patchwork)
+library(viridis)
+library(Seurat)
+library(scCustomize)
+library(qs)
+
+# plot
+#  simply pull from seurat_object@active.ident slot 
+DefaultAssay(selected_inte)<- "RNA"
+Idents(selected_inte) <- 'study' # can be any col.
+
+p1<-Cluster_Highlight_Plot(seurat_object = selected_inte,
+                       cluster_name = c("FibHSE", "FsEpi","PmtHEE"),  # could >3
+                       highlight_color = c("#FF6C67","#23B700","#499FFF"))
+
+p2<- Cluster_Highlight_Plot(seurat_object = selected_inte,
+                       cluster_name = c("FibHSE"),  # could >3
+                       highlight_color = c("#FF6C67"))
+
+p3<- Cluster_Highlight_Plot(seurat_object = selected_inte,
+                       cluster_name = c("FsEpi"),  # could >3
+                       highlight_color = c("#23B700"))
+
+p4<- Cluster_Highlight_Plot(seurat_object = selected_inte,
+                       cluster_name = c("PmtHEE"),  # could >3
+                       highlight_color = c("#499FFF"))
+
+p1234<- ggarrange(p1,p2,p3,p4,ncol = 4)
+
+ggsave(filename = "1.1.4_highlight_FibHSE_FsEpi_PmtHEE_on_UMAP.pdf",
+       plot = p1234, 
+       width = 23 , height = 5)
+```
+
+![](images/Screenshot%202024-08-06%20at%209.26.54%E2%80%AFPM.png)
+
+#### [Harmony] Check marker genes
+
+```{r}
+integrated_harmony-> selected_inte
+
+DefaultAssay(selected_inte) <- "RNA" 
+## define the marker genes.
+known_marker= c(
+  ## Fibroblast
+  "COL1A1", "DCN",
+  ## Mitotic KC: [ Proliferating KC = Mitotic cells = proliferative stem cells]
+  "MKI67", "CCNB1","PCNA",
+  
+  # Basal keratinocyte (BK) = Undifferentiated keratinocytes
+  "KRT14", "KRT5", "KRT15", "COL17A1",
+    # Undifferentiated epidermal basal cells encompassing three quiescent (BC1–3) and proliferating (MC) subpopulations.
+    # Expression of keratin 14 (K14, a marker for basal keratinocytes [Fuchs and Green, 1980]) and K15(which is enriched in stable basal cells [Porter et al., 2000]
+
+  ## Spinous KC [stratum spinosum-layer]
+  "KRT10","KRT1","DSG1",
+  ## Granular KC
+  "FLG", "SPINK5",
+    # KRT10, KRT1 can be both high in SC and GC, check only GC marker to separate GC from SC. Late differentiation markers, including LORICRIN, FLG, and SPINK5
+  "KRT8","KRT18","KRT20", # Merkle cells 
+  "KRT17", # TD columnar keratinocytes
+  "ADIPOQ", # adipocyte
+  "MPZ", "GFRA3",# Schwann cells 
+  "PECAM1", "VWF","SELE","LYVE1", # endo
+  "CD207",  # Langerhans
+  # Melanocyte
+  "PMEL", "MLANA",
+  # Immune cells
+  "PTPRC") 
+```
+
+```{r}
+p1<- FeaturePlot(selected_inte,
+            features = unique(known_marker),
+            cols = colorRampPalette(c("blue","green","yellow","orange","red"))(100),
+            ncol = 5,
+            pt.size = 0.05,
+            min.cutoff = 'q2',
+            max.cutoff = 'q98')
+
+ggsave("1.1.4_marker_gene_harmony_integrated.pdf", 
+       plot = p1, 
+       width = 25, 
+       height =20 ) 
+```
+
+![](images/Screenshot%202024-08-06%20at%2010.20.05%E2%80%AFPM.png){width="402"}
+
+## 2- Annotation [based on Harmony integration]
+
+### [resolution check]
+
+```{r}
+## try different resolution 0.6
+selected_inte_0.6 <- FindClusters(selected_inte, 
+                              resolution = 0.6)
+ 
+## plot to see
+p1<-DimPlot(selected_inte_0.6, reduction = "umap",label = T, pt.size = 0.3)
+
+## res = 0.6
+ggsave("1.2_umap_integrated_obj_harmony_0.6.pdf", plot = p1, width = 5, height =5) 
+```
+
+![](images/Screenshot%202024-08-07%20at%2012.02.15%E2%80%AFAM.png){width="242"}
+
+```{r}
+## check res = 0.7
+selected_inte_0.7 <- FindClusters(selected_inte, 
+                              resolution = 0.7)
+ 
+## plot to see
+p1<-DimPlot(selected_inte_0.7, reduction = "umap",label = T, pt.size = 0.3)
+
+## res = 0.7
+ggsave("1.2_umap_integrated_obj_harmony_0.7.pdf", plot = p1, width = 5, height =5) 
+
+## save res = 0.7
+save(selected_inte_0.7, file ="1.2_full_integrated_by_harmony_res_0.7.Rdata")
+```
+
+![](images/Screenshot%202024-08-07%20at%2012.07.42%E2%80%AFAM.png){width="356"}
+
+```{r}
+selected_inte_0.7-> selected_inte
+
+table(selected_inte$study)
+  ##  FibHSE  FsEpi PmtHEE 
+  ##   2298  11825   4161 
+
+p2<-DimPlot(selected_inte, 
+            reduction = "umap",
+            label = T, 
+            pt.size = 0.3, 
+            split.by = "study",
+            ncol = 2)
+
+ggsave("1.2_umap_integrated_study_split_res_0.7.pdf", 
+       plot = p2, width = 10, height =10 )
+```
+
+![](images/Screenshot%202024-08-07%20at%2012.23.29%E2%80%AFAM.png){width="363"}
+
+### 2.0 Define the first OCT-specific clusters
+
+```{r}
+library(scMC)
+# devtools::install_github("amsszlh/scMC")
+
+selected_inte_0.7-> selected_inte
+## combined is a integrated seurat_obj
+gg1 <- computeProportion(selected_inte, x = "seurat_clusters", fill = "study")
+
+ggsave("1.2.0_study_cell_cluster_propotion.pdf", plot = gg1, width = 8, height =5)
+```
+
+![](images/Screenshot%202024-08-07%20at%2012.18.20%E2%80%AFAM.png){width="375"}
+
+### 2.1 [basal markers] annotation
+
+```{r}
+selected_inte_0.7-> selected_inte
+DefaultAssay(selected_inte) <- "RNA"
+
+## recheck the basal marker by studies.
+known_marker_basal= c(
+  "MKI67", "CCNB1","PCNA",## Mitotic KC: [ Proliferating KC = Mitotic cells = proliferative stem cells]
+  "KRT14", "KRT5", "KRT15", "COL17A1") # Basal keratinocyte (BK) = Undifferentiated keratinocytes
+
+# plot
+p1<- FeaturePlot(selected_inte,
+            features = unique(known_marker_basal),
+            cols = colorRampPalette(c("blue","green","yellow","orange","red"))(100),
+            split.by = "study",
+            ncol = 5,
+            pt.size = 0.05,
+            min.cutoff = 'q2',
+            max.cutoff = 'q98')
+
+ggsave("1.2.1_marker_gene_basal_harmony_integrated_split_study.pdf", 
+       plot = p1, 
+       width = 20, 
+       height =30 )
+```
+
+![](images/Screenshot%202024-08-06%20at%2011.48.23%E2%80%AFPM.png){width="437"}
+
+```{r}
+p1<- FeaturePlot(selected_inte,
+            features = unique(known_marker_basal),
+            cols = colorRampPalette(c("blue","green","yellow","orange","red"))(100),
+            ncol = 4,
+            pt.size = 0.05,
+            min.cutoff = 'q2',
+            max.cutoff = 'q98')
+
+ggsave("1.2.1_marker_gene_basal_Harmony_integrated.pdf", 
+       plot = p1, 
+       width = 20, 
+       height =10 ) 
+```
+
+![](images/Screenshot%202024-08-07%20at%2012.40.04%E2%80%AFAM.png){width="452"}
+
+### 2.2 [suprabasal markers] annotation
+
+```{r}
+known_marker_suprabasal<- c(
+  "KRT10","KRT1","DSG1", # ## Spinous KC [stratum spinosum-layer]
+  "FLG", "SPINK5") ### Granular KC
+  
+p1<- FeaturePlot(selected_inte,
+            features = unique(known_marker_suprabasal),
+            cols = colorRampPalette(c("blue","green","yellow","orange","red"))(100),
+            ncol = 3,
+            pt.size = 0.05,
+            min.cutoff = 'q2',
+            max.cutoff = 'q98')
+
+ggsave("1.2.2_marker_gene_suprabasal_Harmony_integrated.pdf", 
+       plot = p1, 
+       width = 15, 
+       height =10 )  
+```
+
+![](images/Screenshot%202024-08-07%20at%2012.46.27%E2%80%AFAM.png){width="412"}
+
+```{r}
+# plot
+p1<- FeaturePlot(selected_inte,
+            features = unique(known_marker_suprabasal),
+            cols = colorRampPalette(c("blue","green","yellow","orange","red"))(100),
+            split.by = "study",
+            ncol = 3,
+            pt.size = 0.05,
+            min.cutoff = 'q2',
+            max.cutoff = 'q98')
+
+ggsave("1.2.2_marker_gene_suprabasal_harmony_integrated_split_study.pdf", 
+       plot = p1, 
+       width = 15, 
+       height =20)
+```
+
+![](images/Screenshot%202024-08-07%20at%2012.59.10%E2%80%AFAM.png){width="450"}
+
+### 2.3 [other markers] annotation
+
+```{r}
+known_marker_others<- c(
+  "COL1A1", "DCN", # Fib
+  "PMEL", "MLANA", # Melanocyte
+  "PECAM1", # endo
+  "CD207") # Langerhans
+  
+p1<- FeaturePlot(selected_inte,
+            features = unique(known_marker_others),
+            cols = colorRampPalette(c("blue","green","yellow","orange","red"))(100),
+            ncol = 3,
+            pt.size = 0.05,
+            min.cutoff = 'q2',
+            max.cutoff = 'q98')
+
+ggsave("1.2.3_marker_gene_others_harmony_integrated.pdf", 
+       plot = p1, 
+       width = 15, 
+       height =10 )
+```
+
+![](images/Screenshot%202024-08-07%20at%201.15.33%E2%80%AFAM.png)
+
+```{r}
+load("1.2_full_integrated_by_harmony_res_0.7.Rdata")
+selected_inte_0.7-> selected_inte
+
+p1<- FeaturePlot(selected_inte,
+            features = c("PMEL"),
+            cols = colorRampPalette(c("blue","green","yellow","orange","red"))(100),
+            split.by = "study",
+            ncol = 3,
+            pt.size = 0.05,
+            min.cutoff = 'q2',
+            max.cutoff = 'q98')
+
+ggsave("1.2.3_marker_gene_PMEL_harmony_integrated_split_study.pdf", 
+       plot = p1, 
+       width = 15, 
+       height =5)
+```
+
+![](images/Screenshot%202024-08-07%20at%204.04.01%E2%80%AFAM.png)
+
+### 2.4 [C15] recheck C15
+
+```{r}
+## check first the doublet annotation
+p1<-DimPlot(selected_inte, 
+            reduction = "umap",
+            group.by = "scDblFinder_DoubletFinder.class",
+            label = F, 
+            pt.size = 0.3)
+
+## res = 0.7
+ggsave("1.2.4_umap_integrated_obj_harmony_doublets_anno.pdf", 
+       plot = p1, width = 7, height =5) 
+```
+
+![](images/Screenshot%202024-08-07%20at%201.37.42%E2%80%AFAM.png){width="337"}
+
+```{r}
+## feature plot check mt percentage, nRNA and nFeature
+library(ggplot2)
+p1<- FeaturePlot(selected_inte, 
+                 features=c("percent.mt"), pt.size=0.5, 
+                 cols = colorRampPalette(c("blue","green","yellow","orange","red"))(100))
+
+p2<- FeaturePlot(selected_inte, 
+                 features=c("nCount_RNA"), pt.size=0.5, 
+                 cols = colorRampPalette(c("blue","green","yellow","orange","red"))(100))
+
+p3<- FeaturePlot(selected_inte, 
+                 features=c("nFeature_RNA"), pt.size=0.5, 
+                 cols = colorRampPalette(c("blue","green","yellow","orange","red"))(100))
+
+p123<- ggarrange(p1,p2,p3,ncol = 3)
+
+ggsave(p123,filename = "1.2.4_check_C15_plot.pdf",width = 15, height =5)
+```
+
+### 2.5 [Remove doublets]
+
+```{r}
+library(shiny)
+library(plotly)
+library(dplyr)
+library(Seurat)
+
+# devtools::install_github('vikkki/xSelectCells@main')
+
+barcodes <- xSelectCells::xSelectCells(selected_inte)
+## after selection , we have the local vector
+
+barcodes
+```
+
+```{r}
+selected_bc <- barcodes
+new_selected_bc <-c(selected_bc,barcodes)
+## 2- choose rest cells
+setdiff(colnames(selected_inte),new_selected_bc)-> rest_cell_bc
+    ## 18244 cells
+cleaned_selected_inte <- subset(selected_inte, cells= rest_cell_bc)
+dim(cleaned_selected_inte) # 18234 cells.
+
+save(cleaned_selected_inte, file = "1.2.5_full_integrated_by_harmony_re-cleaned_res_0.7.Rdata")
+```
+
+## 4- Add the annotation
+
+```{r}
+load("1.2.5_full_integrated_by_harmony_re-cleaned_res_0.7.Rdata")
+cleaned_selected_inte-> selected_inte # res = 0.7, cleaned
+
+  #> get the cluster number "as character"
+cluster_number = names(table(selected_inte@meta.data$RNA_snn_res.0.7))
+## [1] "0" "1" "2" "3" "4" "5" "6"..."16"
+
+  #> make corresponding cluster annotation.
+annotation_cluster = c(
+"SPN-II",
+"SPN-III",
+"SPN-IV",
+"GRN-I",
+"BAS-VI",
+"BAS-V",
+"GRN-II",
+"BAS-II",
+"BAS-IV",
+"GRN-III",
+"BAS-I",
+"BAS-III",
+"SPN-I",
+"FIB",
+"MEL",
+"Unknown",
+"LC")
+
+# make the corresponding annotation table with cell_cluster
+cluster_anno = data.frame(cluster_number, annotation_cluster, stringsAsFactors = F)
+
+# add empty column for meta.data
+selected_inte@meta.data$cell_type_0.7 = "NA"
+
+# fill the cell types by cluster number comparison
+for(i in 1:nrow(cluster_anno)) { 
+selected_inte@meta.data[which(selected_inte@meta.data$RNA_snn_res.0.7 == cluster_anno$cluster_number[i]),'cell_type_0.7'] <- cluster_anno$annotation_cluster[i] 
+  }
+
+# check the result and performance
+table(selected_inte$cell_type_0.7)
+
+selected_inte-> harmony_selected_0.7_ct
+save(harmony_selected_0.7_ct, file = "1.4_harmony_cleaned_ct_0.7_obj.Rdata")
+```
+
+![](images/Screenshot%202024-08-07%20at%202.17.58%E2%80%AFAM.png)
+
+```{r}
+# plot
+library(tidyverse)
+library(patchwork)
+library(viridis)
+library(Seurat)
+library(scCustomize)
+
+library(scales)
+library(ggsci)
+
+mycolor<-pal_igv("default", alpha = 0.8)(17)
+show_col(mycolor)
+
+mycolor= c(
+"BAS-II"="#CF3D32",
+"BAS-I" = "#5050FF",
+"BAS-III" = "#759B59",
+"BAS-IV"="#F0E685",
+"BAS-V"="#466983",
+"BAS-VI"="#BA6338",
+"SPN-I"="#C75227",
+"SPN-II"="#D58F5D",
+"SPN-III"="#7B66A6",
+"SPN-IV"="#E3AF6A",
+"GRN-I"="#802268",
+"GRN-II"="#75DA76",
+"GRN-III"="#D595A7",
+"FIB"="#5DB1DE",
+"MEL"="#837B8D",
+"LC"= "#934822",
+"Unknown"="#3A1B52")
+
+selected_inte$cell_type_0.7 <- factor(x = selected_inte$cell_type_0.7, levels = c(
+"BAS-I",
+"BAS-II",
+"BAS-III",
+"BAS-IV",
+"BAS-V",
+"BAS-VI",
+"SPN-I",
+"SPN-II",
+"SPN-III",
+"SPN-IV",
+"GRN-I",
+"GRN-II",
+"GRN-III",
+"FIB",
+"MEL",
+"LC",
+"Unknown"))
+
+p1 <- DimPlot_scCustom(selected_inte, 
+                     reduction = "umap",
+                     label = T, 
+                     pt.size = 0.3, 
+                     group.by = "cell_type_0.7",
+                     colors_use = mycolor,
+                     label.box = T,
+                     repel = T)
+
+ggsave(p1,filename = "1.4_Cell_type_umap_plot.pdf",width = 7, height =6)
+```
+
+![](images/Screenshot%202024-08-07%20at%202.33.48%E2%80%AFAM.png){width="422"}
+
+## 5- plot marker genes
+
+```{r}
+load("1.4_harmony_cleaned_ct_0.7_obj.Rdata")
+harmony_selected_0.7_ct-> selected_inte
+  
+
+Idents(selected_inte) <- 'cell_type_0.7'
+
+plot_genes <- c(
+  "KRT5","KRT14","KRT15","CCNB1","PCNA",
+  "KRT1","KRT10","SPINK5","FLG", 
+  "DCN",
+  "PMEL",
+  "CD207")
+
+## personalize the x-axis oeder
+selected_inte$cell_type_0.7 <- factor(x = selected_inte$cell_type_0.7, levels = c(
+"BAS-I",
+"BAS-II",
+"BAS-III",
+"BAS-IV",
+"BAS-V",
+"BAS-VI",
+"SPN-I",
+"SPN-II",
+"SPN-III",
+"SPN-IV",
+"GRN-I",
+"GRN-II",
+"GRN-III",
+"FIB",
+"MEL",
+"LC",
+"Unknown"))
+
+p1 <- VlnPlot(selected_inte, 
+              features= plot_genes,
+              group.by="cell_type_0.7",
+              stack = T, 
+              sort = F, 
+              flip = T, 
+              fill.by = "ident",
+              cols= c(
+"BAS-I" = "#5050FF",
+"BAS-II"="#CF3D32",
+"BAS-III" = "#759B59",
+"BAS-IV"="#F0E685",
+"BAS-V"="#466983",
+"BAS-VI"="#BA6338",
+"SPN-I"="#C75227",
+"SPN-II"="#D58F5D",
+"SPN-III"="#7B66A6",
+"SPN-IV"="#E3AF6A",
+"GRN-I"="#802268",
+"GRN-II"="#75DA76",
+"GRN-III"="#D595A7",
+"FIB"="#5DB1DE",
+"MEL"="#837B8D",
+"LC"= "#934822",
+"Unknown"="#3A1B52")) +  # the order of color very important for legend, legend follows only the color order without name.
+theme(axis.text = element_text(size = 10)) + 
+theme(text = element_text(size = 10))+ 
+theme(legend.position = "right")+ xlab("")+
+stat_summary(fun.y = median, geom='point',size= 5, colour = "black", shape = 95)
+
+ggsave("1.5_marker_genens_vlnplot.pdf", plot = p1, width = 6 , height = 6)
+```
+
+![](images/Screenshot%202024-08-07%20at%203.16.49%E2%80%AFAM.png){width="393"}
+
+### 5.1 replot KC-only
+
+```{r}
+load("1.4_harmony_cleaned_ct_0.7_obj.Rdata")
+harmony_selected_0.7_ct-> selected_inte
+
+## selected only KC
+clusters_of_interest <- c("BAS-I",
+"BAS-II",
+"BAS-III",
+"BAS-IV",
+"BAS-V",
+"BAS-VI",
+"SPN-I",
+"SPN-II",
+"SPN-III",
+"SPN-IV",
+"GRN-I",
+"GRN-II",
+"GRN-III")
+
+KC_only_obj <- subset(selected_inte, 
+                      cell_type_0.7 %in% clusters_of_interest)
+dim(KC_only_obj) # 17172 cells.
+
+## plot >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+# plot
+library(tidyverse)
+library(patchwork)
+library(viridis)
+library(Seurat)
+library(scCustomize)
+
+library(scales)
+library(ggsci)
+
+  # mycolor<-pal_igv("default", alpha = 0.8)(17)
+  # show_col(mycolor)
+
+mycolor= c(
+"BAS-II"="#CF3D32",
+"BAS-I" = "#5050FF",
+"BAS-III" = "#759B59",
+"BAS-IV"="#F0E685",
+"BAS-V"="#466983",
+"BAS-VI"="#BA6338",
+"SPN-I"="#C75227",
+"SPN-II"="#D58F5D",
+"SPN-III"="#7B66A6",
+"SPN-IV"="#E3AF6A",
+"GRN-I"="#802268",
+"GRN-II"="#75DA76",
+"GRN-III"="#D595A7")
+
+selected_inte$cell_type_0.7 <- factor(x = selected_inte$cell_type_0.7, levels = c(
+"BAS-I",
+"BAS-II",
+"BAS-III",
+"BAS-IV",
+"BAS-V",
+"BAS-VI",
+"SPN-I",
+"SPN-II",
+"SPN-III",
+"SPN-IV",
+"GRN-I",
+"GRN-II",
+"GRN-III"))
+
+p1 <- DimPlot_scCustom(KC_only_obj, 
+                     reduction = "umap",
+                     label = T, 
+                     pt.size = 0.3, 
+                     group.by = "cell_type_0.7",
+                     colors_use = mycolor,
+                     label.box = T,
+                     repel = T)
+
+ggsave(p1,filename = "1.5.1_kc_only_umap_plot.pdf",width = 7, height =6)
+```
+
+![](images/Screenshot%202024-08-07%20at%203.33.12%E2%80%AFAM.png){width="412"}
+
+### 5.2 Add new CT for KC
+
+```{r}
+KC_only_obj-> selected_inte
+table(KC_only_obj$RNA_snn_res.0.7)
+#> get the cluster number "as character"
+cluster_number = names(table(selected_inte@meta.data$RNA_snn_res.0.7))
+cluster_number = cluster_number[1:13]
+
+  #> make corresponding cluster annotation.
+annotation_cluster = c(
+"SPN",
+"SPN",
+"SPN",
+"GRN",
+"BAS",
+"BAS",
+"GRN",
+"BAS",
+"BAS",
+"GRN",
+"BAS",
+"BAS",
+"SPN")
+
+# make the corresponding annotation table with cell_cluster
+cluster_anno = data.frame(cluster_number, annotation_cluster, stringsAsFactors = F)
+
+# add empty column for meta.data
+selected_inte@meta.data$KC_states = "NA"
+
+# fill the cell types by cluster number comparison
+for(i in 1:nrow(cluster_anno)) { 
+selected_inte@meta.data[which(selected_inte@meta.data$RNA_snn_res.0.7 == cluster_anno$cluster_number[i]),'KC_states'] <- cluster_anno$annotation_cluster[i] 
+  }
+
+# check the result and performance
+table(selected_inte$KC_states)
+  # BAS  GRN  SPN 
+  # 5481 3689 8002 
+
+selected_inte-> harmony_0.7_KC_only_states
+
+## save
+save(harmony_0.7_KC_only_states, file = "1.5.2_harmony_KC_only_obj.Rdata")
+```
+
+### 5.3_plot KC_only states
+
+```{r}
+load("1.5.2_harmony_KC_only_obj.Rdata")
+harmony_0.7_KC_only_states-> selected_inte
+
+## plot >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+# plot
+library(tidyverse)
+library(patchwork)
+library(viridis)
+library(Seurat)
+library(scCustomize)
+
+library(scales)
+library(ggsci)
+
+  # mycolor<-pal_igv("default", alpha = 0.8)(17)
+  # show_col(mycolor)
+
+mycolor= c(
+"BAS" = "#759B59",
+"SPN"="#E3AF6A",
+"GRN"="#D595A7")
+
+selected_inte$KC_states <- factor(x = selected_inte$KC_states, levels = c(
+"BAS",
+"SPN",
+"GRN"))
+
+p1 <- DimPlot_scCustom(selected_inte, 
+                     reduction = "umap",
+                     label = T, 
+                     pt.size = 0.3, 
+                     group.by = "KC_states",
+                     colors_use = mycolor,
+                     label.box = T,
+                     repel = T)
+
+ggsave(p1,filename = "1.5.3_kc_STATES_umap_plot.pdf",width = 7, height =6)
+```
+
+![](images/Screenshot%202024-08-07%20at%203.49.05%E2%80%AFAM.png){width="357"}
+
+```{r}
+### barplot
+library(Seurat)
+library(scRNAtoolVis)
+
+mycolor= c(
+"BAS" = "#759B59",
+"SPN"="#E3AF6A",
+"GRN"="#D595A7")
+
+p1<-cellRatioPlot(object = selected_inte,
+              sample.name = "study", # x-axis data
+              celltype.name = "KC_states", # filled value
+              col.width	= 0.7, #column width, default 0.7.
+              fill.col = mycolor,
+              flow.alpha = 0.25, # flow color alpha, default 0.25.
+              flow.curve = 0.5)+
+  theme(axis.text.x.bottom = element_text(angle = 45,
+                                          hjust = 1,
+                                          size = 10,
+                                          color = "black"))
+
+ggsave("1.5.3_barplot_KC_and_Study.pdf", plot = p1, 
+       width = 5, height = 5)
+```
+
+![](images/Screenshot%202024-08-07%20at%203.57.46%E2%80%AFAM.png){width="345"}

@@ -1,0 +1,709 @@
+---
+title: "Reitermaier_2021"
+author: "Yelon"
+date: "2023-03-06"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r}
+library(Seurat)
+library(ggplot2)
+library(ggpubr)
+set.seed(805181) ## for repeatability of cluster mapping.
+```
+
+## 1-Combine FsEpi/FibHSE/PmtHEE
+
+### 1.1 Load all datasets for merging
+
+```{r}
+# FsEpi -> Wang_20220203/20204
+  load("Wang_2020_final_seurat_list.Rdata")
+  Wang_2020_final_seurat_list
+  Wang_2020_final_seurat_list-> FsEpi_list
+
+# FibHSE -> FibHSE20231/FibHSE20232
+  load("FibHSE_final_seurat_list_old.Rdata")
+  FibHSE_list
+
+#PmtHEE
+  load("PmtHEE_final_seurat_list.Rdata")
+  PmtHEE_final_seurat_list-> PmtHEE_list
+```
+
+### 1.2 Merge
+
+```{r}
+full_list <- c(FsEpi_list,FibHSE_list,PmtHEE_list) # combine 5 lists 
+full_list
+full_list-> selected_list
+
+# merge all
+selected_list->selected_list_no_first
+selected_list_no_first[[1]] <- NULL 
+selected_merged <- merge(selected_list[[1]], y=selected_list_no_first) 
+
+dim(selected_merged) # [1] 26058 genes; 23207 cells
+table(selected_merged$study)
+  # FibHSE  FsEpi PmtHEE 
+  #  2310  16736   4161 
+```
+
+```{r}
+##> change the value for "orig.ident" and "study"
+##> 
+table(selected_merged$orig.ident)
+  # FibHSE20231 FibHSE20232   pigmented   Wang20201   Wang20202   Wang20203   Wang20204   Wang20205 
+
+table(selected_merged$study)
+  ## FibHSE  FsEpi PmtHEE
+
+library(dplyr) 
+## "value 1" will be replaced by "value 2"
+## "value 1" ~ "Pericyte",
+selected_merged@meta.data <- selected_merged@meta.data %>%
+  mutate(orig.ident = case_when(          
+orig.ident == "FibHSE20231" ~ "FibHSE_1",         
+orig.ident == "FibHSE20232" ~ "FibHSE_2",      
+orig.ident == "pigmented" ~ "PmtHEE",  
+orig.ident == "Wang20201" ~ "FsEpi_1",         
+orig.ident == "Wang20202" ~ "FsEpi_2",  
+orig.ident == "Wang20203" ~ "FsEpi_3",  
+orig.ident == "Wang20204" ~ "FsEpi_4",  
+orig.ident == "Wang20205" ~ "FsEpi_5",  
+    TRUE ~ orig.ident
+  ))
+```
+
+```{r}
+##> process the merged obj
+
+pc.num = 1:30 ## checked already before
+feature.num=2000
+cluster.res = 0.5
+
+DefaultAssay(selected_merged) <- "RNA" 
+     # no need for normalize and variable features, because here are only normalized variable features.
+     # Scale the variable features. ####
+     # variable features defined already in "integrated" assay
+     selected_merged <- NormalizeData(selected_merged) %>% FindVariableFeatures(nfeatures = feature.num) %>%
+  ScaleData() %>% RunPCA() %>% FindNeighbors(dims = pc.num) %>%
+                             FindClusters(resolution = cluster.res) %>%
+                             RunUMAP(dims = pc.num) %>% 
+                             RunTSNE(dims = pc.num)
+
+```
+
+```{r}
+save(selected_merged, file = "1.1.2_processed_merged_FibHSE_PmtHEE_FsEpi.Rdata")
+```
+
+#### 1.2.1 plot and check
+
+```{r}
+# [plot] ####
+p1<-DimPlot(selected_merged, reduction = "umap",label = T, pt.size = 0.3)
+ggsave("1.1.2.1_umap_merged_obj_seurat.pdf", plot = p1, width = 7, height =5)
+```
+
+![](images/Screenshot%202024-08-12%20at%2011.32.40%E2%80%AFAM.png){width="351"}
+
+```{r}
+## split
+p1<-DimPlot(selected_merged, reduction = "umap",
+            split.by = "study",
+            label = T, 
+            pt.size = 0.3)
+ggsave("1.1.2.1_umap_merged_obj_seurat_split_study.pdf", plot = p1, width = 15, height =5)
+```
+
+![](images/Screenshot%202024-08-12%20at%2011.35.53%E2%80%AFAM.png)
+
+#### 1.2.2 check cell ratio
+
+```{r}
+## donor number in each study
+library(ggpie)
+  # BiocManager::install("ggpie")
+library(ggplot2)
+selected_merged@meta.data-> piechart_data
+
+## cell_number in study
+p1<-ggpie(data = piechart_data, 
+      group_key = "study", 
+      count_type = "full", # "count" or "full"
+      label_info = "all",  # "count","ratio" or "all"
+      label_type = "circle",# "horizon" , "none", "circle"
+      label_split = NULL,
+      label_size = 3, 
+      label_pos = "in",
+      border_color="white",
+      border_size = 0.5)+
+      ggtitle("Study")+
+      theme(plot.title.position = "plot")
+p1
+
+ggsave("1.1.2.2_piechart_study.pdf",
+       plot = p1, 
+       width = 5, height = 5)
+```
+
+![](images/Screenshot%202024-08-12%20at%2011.38.12%E2%80%AFAM.png){width="353"}
+
+```{r}
+## cell_number in samples
+p1<-ggpie(data = piechart_data, 
+      group_key = "orig.ident", 
+      count_type = "full", # "count" or "full"
+      label_info = "all",  # "count","ratio" or "all"
+      label_type = "circle",# "horizon" , "none", "circle"
+      label_split = NULL,
+      label_size = 3, 
+      label_pos = "in",
+      border_color="white",
+      border_size = 0.5)+
+      ggtitle("Samples")+
+      theme(plot.title.position = "plot")
+p1
+
+ggsave("1.1.2.2_piechart_samples.pdf",
+       plot = p1, 
+       width = 5, height = 5)
+```
+
+![](images/Screenshot%202024-08-12%20at%2011.39.43%E2%80%AFAM.png){width="311"}
+
+#### 1.2.3 [ROGUE] cluster purity check
+
+```{r}
+library(ROGUE)
+library(ggplot2)
+library(tidyverse)
+# load("1.1.2_processed_merged_FibHSE_PmtHEE_FsEpi.Rdata")
+
+#> seurat obj
+selected_merged # the object
+
+#> extract count matrix
+DefaultAssay(selected_merged) <- "RNA" 
+
+expr <- GetAssayData(selected_merged , slot="counts") %>% as.matrix() # rowname is gene name, col name is cell_id
+
+#> Expression entropy model
+ent.res <- SE_fun(expr)  # To apply the S-E model, we calculate the expression entropy for each gene 
+head(ent.res)
+
+##> calculate rogue
+rogue.value <- CalculateRogue(ent.res, platform = "UMI")
+rogue.value # 0.32, thus confirming their heterogeneity... >0.9 is 
+
+#> Calculate the ROGUE value  for each study
+rogue.res <- rogue(expr, labels = selected_merged$study, samples = selected_merged$seurat_clusters, platform = "UMI", span = 0.6)
+
+rogue.res
+```
+
+![](images/Screenshot%202024-08-13%20at%202.51.22%E2%80%AFPM.png){width="289"}
+
+```{r}
+#### replot boxplot with colored sample dots
+## 1> need transfrom wide data to long data
+library(reshape2)
+rogue.res-> wide_data
+wide_data$seurat_clusters<-rownames(wide_data)
+
+long_data<- melt(wide_data,
+                 id.vars = c("seurat_clusters"),
+                 measure.vars = c(1:3),
+                 variable.name = "study",
+                 value.name = "ROGUE")
+```
+
+![](images/Screenshot%202024-08-13%20at%202.55.11%E2%80%AFPM.png){width="279"}
+
+```{r}
+## personalize your x order
+long_data$seurat_clusters <- factor(long_data$seurat_clusters, levels = c("0","1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16"))
+
+# Calculate the mean ROGUE index
+mean_rogue <- mean(long_data$ROGUE, na.rm = TRUE) # 0.667
+
+## plot
+p <- ggplot(long_data, aes(x= seurat_clusters, y=ROGUE)) + # fill the box the color by Condition
+      # Box plot with multicolor dots by Replicates
+  scale_y_continuous(limits = c(0, 1),  # Replace 0 and 1 with your desired range
+                    breaks = seq(0, 1, by = 0.25)) +  # Adjust breaks as needed
+   geom_boxplot(colour = "grey", # outline color for boxplot
+                width = 0.4) +   # the box width
+  
+  
+        geom_point(aes(color=factor(study)),
+                   size = 1, # dot size
+                   position=position_dodge(width=0.4))+
+  
+  # Custom colors for Study
+      scale_color_manual(values = c("FibHSE" = "#FF0000", 
+                                    "FsEpi" = "#0CA14A", 
+                                    "PmtHEE" = "blue")) +
+      
+      # axis ANNOTATION
+        labs(title="ROGUE index for clusters",
+             x="", 
+             y = "ROGUE Index") + 
+  
+  # Add the mean ROGUE index line
+  geom_hline(yintercept = mean_rogue, linetype = "dashed", color = "darkgrey") +
+  
+    # Add annotation for the mean value on the right side of the dotted line
+  annotate("text", x = 0.5, 
+           y = 0.05 , 
+           label = paste("ROGUE mean:", round(mean_rogue, 3)), 
+           vjust = -0.5, hjust = -0.1, color = "darkgrey",
+           size = 2) +
+  
+      # theme styple
+        theme_classic() ## define the theme
+
+ggsave("1.1.2.3_purity_MERGED_seurat.pdf",
+       plot = p, 
+       width = 5, height = 2)
+```
+
+## 2_Integration by Seurat
+
+```{r}
+library(tidyverse)
+
+## preprocess the individual seurat_list
+full_list <- c(FsEpi_list,FibHSE_list,PmtHEE_list) # combine 3 lists 
+full_list-> selected_list
+
+for (i in 1:length(selected_list)) {
+  pc.num = 1:30 ## checked already before
+  feature.num=2000 ## 2000-5000
+  cluster.res = 0.5
+  selected_list[[i]] <- NormalizeData(selected_list[[i]], 
+                                       normalization.method = "LogNormalize", 
+                                       scale.factor = 10000)
+  selected_list[[i]] <- FindVariableFeatures(selected_list[[i]],
+                                              selection.method = "vst",
+                                              nfeatures = feature.num)
+  selected_list[[i]] <- ScaleData(selected_list[[i]], 
+                                   features = VariableFeatures(selected_list[[i]]))
+  selected_list[[i]] <- RunPCA(selected_list[[i]], 
+                                features = VariableFeatures(selected_list[[i]])) 
+  
+  selected_list[[i]] <- FindNeighbors(selected_list[[i]], 
+                                       dims = pc.num)
+  selected_list[[i]] <- FindClusters(selected_list[[i]], 
+                                      resolution = cluster.res)  
+  ## UMAP
+  selected_list[[i]]<- RunUMAP(selected_list[[i]], 
+                                 reduction = "pca", dims = pc.num) 
+  ## t-SNE
+  selected_list[[i]] <- RunTSNE(selected_list[[i]], check_duplicates = FALSE,
+                                 reduction = "pca", dims = pc.num)
+}
+
+#> integration
+integrated.anchors <- FindIntegrationAnchors(object.list = selected_list,dims = 1:30)
+     # dims = 1:30 as default.normalization method used: LogNormalize [as default]
+    # anchor.features = 2000
+seurat_integrated <- IntegrateData(anchorset = integrated.anchors, dims = 1:30)
+
+##> Processing after integration 
+DefaultAssay(seurat_integrated) <- "integrated" 
+     # no need for normalize and variable features, because here are only normalized variable features.
+     # Scale the variable features. ####
+     # variable features defined already in "integrated" assay
+     seurat_integrated <- ScaleData(seurat_integrated)%>% 
+                             RunPCA() %>% FindNeighbors(dims = 1:30) %>%
+                             FindClusters(resolution = 0.5) %>%
+                             RunUMAP(dims = 1:30) %>% 
+                             RunTSNE(dims = 1:30)
+
+## save   
+    seurat_integrated -> selected_inte
+    save(selected_inte, file = "1.2_old_processed_integrated_PmtHEE_FibHSE_FsEpi.Rdata")
+    ## FibHSE20231 FibHSE20232   pigmented   Wang20201   Wang20202   Wang20203   Wang20204   Wang20205 
+##  1899         411        4161        2046        1227        4554        7271        1638 
+```
+
+```{r}
+load("1.2_old_processed_integrated_PmtHEE_FibHSE_FsEpi.Rdata")
+## selected_inte
+
+# [plot] ####
+p1<-DimPlot(selected_inte, reduction = "umap",label = T, pt.size = 0.3)
+p1
+ggsave("1.2_umap_integrated_obj_seurat.pdf", plot = p1, width = 7, height =5)
+```
+
+![](images/Screenshot%202024-08-12%20at%2010.12.39%E2%80%AFAM.png){width="405"}
+
+```{r}
+# condition check
+table(selected_inte$study)
+  ##  FibHSE  FsEpi PmtHEE 
+  ##    2310  16736   4161
+
+p2<-DimPlot(selected_inte, 
+            reduction = "umap",
+            label = T, 
+            pt.size = 0.3, 
+            split.by = "study",
+            ncol = 2)
+
+ggsave("1.2_umap_integrated_study_split.pdf", 
+       plot = p2, width = 10, height = 10 )
+
+## 3-column
+p1<-DimPlot(selected_inte, 
+            reduction = "umap",
+            label = T, 
+            pt.size = 0.3, 
+            split.by = "study",
+            ncol = 3)
+
+ggsave("1.2_umap_integrated_study_split_2.pdf", 
+       plot = p1, width = 15, height = 5 )
+
+```
+
+![](images/Screenshot%202024-08-12%20at%2011.58.37%E2%80%AFAM.png){width="388"}
+
+![](images/Screenshot%202024-08-13%20at%2010.55.32%E2%80%AFAM.png)
+
+### 2.2 General marker gene check
+
+```{r}
+selected_inte # seuart_integrated
+
+DefaultAssay(selected_inte) <- "RNA" 
+## define the marker genes.
+known_marker= c(
+  ## Fibroblast
+  "COL1A1", "DCN",
+  ## Mitotic KC: [ Proliferating KC = Mitotic cells = proliferative stem cells]
+  "MKI67", "CCNB1","PCNA",
+  
+  # Basal keratinocyte (BK) = Undifferentiated keratinocytes
+  "KRT14", "KRT5", "KRT15", "COL17A1",
+    # Undifferentiated epidermal basal cells encompassing three quiescent (BC1–3) and proliferating (MC) subpopulations.
+    # Expression of keratin 14 (K14, a marker for basal keratinocytes [Fuchs and Green, 1980]) and K15(which is enriched in stable basal cells [Porter et al., 2000]
+
+  ## Spinous KC [stratum spinosum-layer]
+  "KRT10","KRT1","DSG1",
+  ## Granular KC
+  "FLG", "SPINK5",
+    # KRT10, KRT1 can be both high in SC and GC, check only GC marker to separate GC from SC. Late differentiation markers, including LORICRIN, FLG, and SPINK5
+  "KRT8","KRT18","KRT20", # Merkle cells 
+  "KRT17","CD200", # TD columnar keratinocytes
+  "MPZ", "GFRA3",# Schwann cells 
+  "PECAM1", "VWF","SELE", # endo
+  "CD207",  # Langerhans
+  "RGS5", # pericyte
+  "ACTA2", # muscle cells
+  "PMEL", "MLANA", # Melanocyte
+  # Immune cells
+  "PTPRC")
+```
+
+```{r}
+p1<- FeaturePlot(selected_inte,
+            features = unique(known_marker),
+            cols = colorRampPalette(c("blue","green","yellow","orange","red"))(100),
+            ncol = 5,
+            pt.size = 0.05,
+            min.cutoff = 'q2',
+            max.cutoff = 'q98')
+
+ggsave("1.2.2_marker_gene_seurat_integrated.pdf", 
+       plot = p1, 
+       width = 25, 
+       height =20 ) 
+```
+
+![](images/Screenshot%202024-08-13%20at%2011.53.34%E2%80%AFAM.png)
+
+### 2.3 Check doublets
+
+```{r}
+## check first the doublet annotation
+p1<-DimPlot(selected_inte, 
+            reduction = "umap",
+            group.by = "scDblFinder_DoubletFinder.class",
+            label = F, 
+            pt.size = 0.3)
+
+## res = 0.7
+ggsave("1.2.3_umap_integrated_obj_seurat_doublets_anno.pdf", 
+       plot = p1, width = 7, height =5) 
+```
+
+![](images/Screenshot%202024-08-13%20at%2011.16.04%E2%80%AFAM.png){width="341"}
+
+```{r}
+## feature plot check mt percentage, nRNA and nFeature
+library(ggplot2)
+DefaultAssay(selected_inte) <- "RNA" 
+
+p1<- FeaturePlot(selected_inte, 
+                 features=c("percent.mt"), pt.size=0.5, 
+                 cols = colorRampPalette(c("blue","green","yellow","orange","red"))(100),
+                 split.by = "study",
+                 ncol = 3)
+
+p2<- FeaturePlot(selected_inte, 
+                 features=c("nCount_RNA"), pt.size=0.5, 
+                 cols = colorRampPalette(c("blue","green","yellow","orange","red"))(100),
+                 split.by = "study",
+                 ncol = 3)
+
+
+p3<- FeaturePlot(selected_inte, 
+                 features=c("nFeature_RNA"), pt.size=0.5, 
+                 cols = colorRampPalette(c("blue","green","yellow","orange","red"))(100),
+                 split.by = "study",
+                 ncol = 3)
+
+p123<- ggarrange(p1,p2,p3,ncol = 1)
+
+ggsave(p123,filename = "1.2.3_check_doublet_plot.pdf",width = 15, height =15)
+```
+
+![](images/Screenshot%202024-08-13%20at%2011.30.59%E2%80%AFAM.png)
+
+```{r}
+p1<- FeaturePlot(selected_inte, 
+                 features=c("percent.mt"), pt.size=0.5, 
+                 cols = colorRampPalette(c("blue","green","yellow","orange","red"))(100))
+
+p2<- FeaturePlot(selected_inte, 
+                 features=c("nCount_RNA"), pt.size=0.5, 
+                 cols = colorRampPalette(c("blue","green","yellow","orange","red"))(100))
+
+
+p3<- FeaturePlot(selected_inte, 
+                 features=c("nFeature_RNA"), pt.size=0.5, 
+                 cols = colorRampPalette(c("blue","green","yellow","orange","red"))(100))
+
+p123<- ggarrange(p1,p2,p3,ncol = 3)
+
+ggsave(p123,filename = "1.2.3_check_doublet_plot_merge.pdf",width = 15, height =5)
+```
+
+### 2.4 Resolution check [0.5/0.7/0.9]
+
+```{r}
+##  set "integrated" Data as default ####
+      DefaultAssay(selected_inte) <- "integrated" 
+   
+        ## need rerun from FindCluster, using differernt "resolution"
+        # res.used <- seq(0.1,1, by=0.2)
+        res.used<- c(0.7,0.9)
+        # [1] 0.7 0.9. # 0.5 did before
+        
+        # Loop over and perform clustering of different resolutions 
+        for(i in res.used){
+        selected_inte<- FindClusters(selected_inte, resolution = res.used)
+        }
+        
+        ## save
+  selected_inte-> selected_inte_05_07_09
+  
+  save(selected_inte_05_07_09, file = "1.2.4_seurat_integrated_diff_res_obj.Rdata")
+```
+
+```{r}
+##  Draw the UMAP plot for different resolution ####
+
+      p_0.5 = DimPlot(selected_inte, 
+                      reduction = "umap",
+                      label = T, group.by = "integrated_snn_res.0.5")
+      p_0.7 = DimPlot(selected_inte, 
+                      reduction = "umap",
+                      label = T, group.by = "integrated_snn_res.0.7")
+      p_0.9 = DimPlot(selected_inte, 
+                      reduction = "umap",
+                      label = T, group.by = "integrated_snn_res.0.9")
+
+
+      plot_res<-ggarrange(p_0.5,p_0.7,p_0.9,
+                          labels = c("UMAP_res_0.5","UMAP_res_0.7","UMAP_res_0.9"), 
+                          ncol = 3, nrow=1,
+                          font.label = list(size = 10, color = "red", face = "italic"))
+
+      ggsave("1.2.4_Resolution_UMAP_seurat_cluster.pdf", plot = plot_res, width = 21, height = 5)
+```
+
+![](images/Screenshot%202024-08-13%20at%2012.02.22%E2%80%AFPM.png)
+
+### 2.5 [ROGUE] recheck the purity at diff. res
+
+```{r}
+library(ROGUE)
+library(ggplot2)
+library(tidyverse)
+
+load("1.2.4_seurat_integrated_diff_res_obj.Rdata")
+#> seurat obj
+selected_inte_05_07_09 -> selected_inte # the seurat integrated object
+
+#> extract count matrix
+DefaultAssay(selected_inte) <- "RNA" 
+
+expr_seurat_inte <- GetAssayData(selected_inte , slot="counts") %>% as.matrix() # rowname is gene name, col name is cell_id
+
+#> Expression entropy model
+ent.res <- SE_fun(expr_seurat_inte)  # To apply the S-E model, we calculate the expression entropy for each gene 
+head(ent.res)
+
+##> calculate rogue
+rogue.value <- CalculateRogue(ent.res, platform = "UMI")
+rogue.value # 0.32, thus confirming their heterogeneity... >0.9 is 
+
+#> Calculate the ROGUE value  for each study
+rogue.res_0.5 <- rogue(expr_seurat_inte, labels = selected_inte$study, samples = selected_inte$integrated_snn_res.0.5, platform = "UMI", span = 0.6)
+
+rogue.res_0.7 <- rogue(expr_seurat_inte, labels = selected_inte$study, samples = selected_inte$integrated_snn_res.0.7, platform = "UMI", span = 0.6)
+
+rogue.res_0.9 <- rogue(expr_seurat_inte, labels = selected_inte$study, samples = selected_inte$integrated_snn_res.0.9, platform = "UMI", span = 0.6)
+
+save(rogue.res_0.5,rogue.res_0.7,rogue.res_0.9,file = "1.2.5_seurat_integrated_purity_res_rogue.res.Rdata")
+```
+
+```{r}
+#### replot boxplot with colored sample dots
+## 1> need transfrom wide data to long data
+library(reshape2)
+
+rogue.res_0.5-> wide_data_0.5
+rogue.res_0.7-> wide_data_0.7
+rogue.res_0.9-> wide_data_0.9
+
+wide_data_0.5$seurat_clusters <-rownames(wide_data_0.5)
+wide_data_0.7$seurat_clusters<-rownames(wide_data_0.7)
+wide_data_0.9$seurat_clusters<-rownames(wide_data_0.9)
+
+long_data_0.5<- melt(wide_data_0.5,
+                 id.vars = c("seurat_clusters"),
+                 measure.vars = c(1:3),
+                 variable.name = "study",
+                 value.name = "ROGUE")
+long_data_0.7<- melt(wide_data_0.7,
+                 id.vars = c("seurat_clusters"),
+                 measure.vars = c(1:3),
+                 variable.name = "study",
+                 value.name = "ROGUE")
+long_data_0.9<- melt(wide_data_0.9,
+                 id.vars = c("seurat_clusters"),
+                 measure.vars = c(1:3),
+                 variable.name = "study",
+                 value.name = "ROGUE")
+```
+
+```{r}
+long_data_0.5$seurat_clusters <- factor(long_data_0.5$seurat_clusters, levels = c("0","1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16"))
+
+long_data_0.7$seurat_clusters <- factor(long_data_0.7$seurat_clusters, levels = c("0","1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17"))
+
+long_data_0.9$seurat_clusters <- factor(long_data_0.9$seurat_clusters, levels = c("0","1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18","19","20"))
+
+# Calculate the mean ROGUE index
+mean_rogue_0.5 <- mean(long_data_0.5$ROGUE, na.rm = TRUE)
+mean_rogue_0.7 <- mean(long_data_0.7$ROGUE, na.rm = TRUE)
+mean_rogue_0.9 <- mean(long_data_0.9$ROGUE, na.rm = TRUE)
+
+## plot
+p_0.5 <- ggplot(long_data_0.5, aes(x= seurat_clusters, y=ROGUE)) + # fill the box the color by Condition
+      # Box plot with multicolor dots by Replicates
+  scale_y_continuous(limits = c(0, 1), 
+                    breaks = seq(0, 1, by = 0.25)) +  
+  geom_boxplot(colour = "grey", 
+                width = 0.4) +
+  geom_point(aes(color=factor(study)),
+                   size = 1, # dot size
+                   position=position_dodge(width=0.4))+
+  scale_color_manual(values = c("FibHSE" = "#FF0000", 
+                                "FsEpi" = "#0CA14A", 
+                                "PmtHEE" = "blue")) +
+  labs(title="ROGUE index for res_0.5",
+             x="", 
+             y = "ROGUE Index") + 
+  # Add the mean ROGUE index line
+  geom_hline(yintercept = mean_rogue_0.5, linetype = "dashed", color = "darkgrey") +
+  
+    # Add annotation for the mean value on the right side of the dotted line
+  annotate("text", x = 0.5, 
+           y = 0.05 , 
+           label = paste("ROGUE mean:", round(mean_rogue_0.5, 3)), 
+           vjust = -0.5, hjust = -0.1, color = "darkgrey",
+           size = 2) +
+
+  theme_classic() ## define the theme
+
+p_0.7 <- ggplot(long_data_0.7, aes(x= seurat_clusters, y=ROGUE)) + # fill the box the color by Condition
+      # Box plot with multicolor dots by Replicates
+  scale_y_continuous(limits = c(0, 1), 
+                    breaks = seq(0, 1, by = 0.25)) +  
+  geom_boxplot(colour = "grey", 
+                width = 0.4) +
+  geom_point(aes(color=factor(study)),
+                   size = 1, # dot size
+                   position=position_dodge(width=0.4))+
+  scale_color_manual(values = c("FibHSE" = "#FF0000", 
+                                "FsEpi" = "#0CA14A", 
+                                "PmtHEE" = "blue")) +
+  labs(title="ROGUE index for res_0.7",
+             x="", 
+             y = "ROGUE Index") + 
+   # Add the mean ROGUE index line
+  geom_hline(yintercept = mean_rogue_0.7, linetype = "dashed", color = "darkgrey") +
+  
+    # Add annotation for the mean value on the right side of the dotted line
+  annotate("text", x = 0.5, 
+           y = 0.05 , 
+           label = paste("ROGUE mean:", round(mean_rogue_0.7, 3)), 
+           vjust = -0.5, hjust = -0.1, color = "darkgrey",
+           size = 2) +
+  theme_classic() ## define the theme
+
+p_0.9 <- ggplot(long_data_0.9, aes(x= seurat_clusters, y=ROGUE)) + # fill the box the color by Condition
+      # Box plot with multicolor dots by Replicates
+  scale_y_continuous(limits = c(0, 1), 
+                    breaks = seq(0, 1, by = 0.25)) +  
+  geom_boxplot(colour = "grey", 
+                width = 0.4) +
+  geom_point(aes(color=factor(study)),
+                   size = 1, # dot size
+                   position=position_dodge(width=0.4))+
+  scale_color_manual(values = c("FibHSE" = "#FF0000", 
+                                "FsEpi" = "#0CA14A", 
+                                "PmtHEE" = "blue")) +
+  labs(title="ROGUE index for res_0.9",
+             x="", 
+             y = "ROGUE Index") + 
+   # Add the mean ROGUE index line
+  geom_hline(yintercept = mean_rogue_0.9, linetype = "dashed", color = "darkgrey") +
+  
+    # Add annotation for the mean value on the right side of the dotted line
+  annotate("text", x = 0.5, 
+           y = 0.05 , 
+           label = paste("ROGUE mean:", round(mean_rogue_0.9, 3)), 
+           vjust = -0.5, hjust = -0.1, color = "darkgrey",
+           size = 2) +
+  theme_classic() ## define the theme
+
+## merge 
+plot_res<-ggarrange(p_0.5,p_0.7,p_0.9,
+                          ncol = 2, nrow=2)
+
+## save
+ggsave("1.2.5_purity_check_res_05_07_09_UMAP_seurat_cluster.pdf", plot = plot_res, width = 10, height = 4)
+    ## choose res= 0.5
+```
+
+![](images/Screenshot%202024-08-13%20at%203.21.14%E2%80%AFPM.png)
