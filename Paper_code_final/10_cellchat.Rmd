@@ -1,0 +1,559 @@
+---
+title: "Reitermaier_2021"
+author: "Yelon"
+date: "2023-03-06"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+-   R 4.4.1
+
+```{r}
+library(CellChat)
+# install.packages("devtools")
+devtools::install_github("immunogenomics/presto")
+# devtools::install_github("jinworks/CellChat")
+
+library(patchwork)
+# options(stringsAsFactors = FALSE)
+# reticulate::use_python("/Users/suoqinjin/anaconda3/bin/python", required=T) 
+
+library(Seurat)
+set.seed(805181) ## for repeatability of cluster mapping.
+```
+
+## 1- Prepare the KC-MEL only object in FsEpi + PmtHEE
+
+```{r}
+##> input new all cell object
+load("R9_4.2_new_cleaned_seurat_0.7.Rdata") # new cleaned seurat obj
+cleaned_seurat_0.7-> selected_obj # all cells
+
+table(selected_obj$study)
+  # FibHSE  FsEpi PmtHEE 
+  #  2248  16388   4139 
+```
+
+```{r}
+### choose only FsEpi and PmtHEE study
+cell_id <- subset(selected_obj@meta.data, 
+                  study %in% c("FsEpi", "PmtHEE")) # 20527 cells
+
+## extract the cells along the defined ID 
+selected_study <- subset(selected_obj, cells=row.names(cell_id))
+```
+
+-   select only KC and MEL in FsEpi and PmtHEE
+
+```{r}
+## keep only KC and MEL cells
+table(selected_study$cell_type_0.7)
+    ## BAS-I  BAS-II BAS-III  BAS-IV   BAS-V    Endo   GRN-I  GRN-II GRN-III      HF      LC     MEL   SPN-I 
+    ## 769     492    1503    1560    2067     114    1100    2119    1174      74     111     987    3025 
+    ## SPN-II SPN-III  SPN-IV 
+    #   650    1820    2962
+
+# select all KC and MEL cells
+cell_id <- subset(selected_study@meta.data, 
+                  !cell_type_0.7 %in% c("HF", "LC","Endo")) # 20228 cells
+
+## extract the cells along the defined ID 
+selected_study_cells <- subset(selected_study, cells=row.names(cell_id))
+
+# check again the cells
+table(selected_study_cells$cell_type_0.7)
+    #   BAS-I  BAS-II BAS-III  BAS-IV   BAS-V   GRN-I  GRN-II GRN-III     MEL   SPN-I  SPN-II SPN-III  SPN-IV 
+    # 769     492    1503    1560    2067    1100    2119    1174     987    3025     650    1820    2962 
+```
+
+```{r}
+## add the KC states for KCs
+selected_study_cells-> selected_obj
+#> get the cluster number "as character"
+cluster_number = names(table(selected_obj$cell_type_0.7))
+cluster_number = cluster_number[1:13]
+    ##>  [1] "BAS-I"   "BAS-II"  "BAS-III" "BAS-IV"  "BAS-V"   "GRN-I"   "GRN-II"  "GRN-III" "MEL"     "SPN-I"  
+    ##>  [11] "SPN-II"  "SPN-III" "SPN-IV"
+
+  #> make corresponding cluster annotation.
+annotation_cluster = c(
+"BAS",
+"BAS",
+"BAS",
+"BAS",
+"BAS",
+"GRN",
+"GRN",
+"GRN",
+"MEL",
+"SPN",
+"SPN",
+"SPN",
+"SPN")
+
+# make the corresponding annotation table with cell_cluster
+cluster_anno = data.frame(cluster_number, annotation_cluster, stringsAsFactors = F)
+
+# add empty column for meta.data
+selected_obj@meta.data$KC_states = "NA"
+
+# fill the cell types by cluster number comparison
+for(i in 1:nrow(cluster_anno)) { 
+selected_obj@meta.data[which(selected_obj@meta.data$cell_type_0.7 == cluster_anno$cluster_number[i]),'KC_states'] <- cluster_anno$annotation_cluster[i] 
+  }
+
+#> check the result and performance
+table(selected_obj$KC_states)
+    # BAS  GRN  MEL  SPN 
+    # 6391 4393  987 8457 
+```
+
+### [save] KC and MEL in FsEpi and PmtHEE
+
+```{r}
+selected_obj-> selected_study_cells
+save(selected_study_cells,file = "R10_1_kc_mel_in_Epi_and_PmtHEE.Rdata")
+```
+
+## 2- Cellchat obj from Seurat
+
+```{r}
+load("R10_1_kc_mel_in_Epi_and_PmtHEE.Rdata")
+selected_study_cells-> selected_obj
+```
+
+```{r}
+## split the obj to FsEpi and PmtHEE
+split_list <- SplitObject(selected_obj, split.by = "study")
+```
+
+### 2.1- cellchat_PmtHEE
+
+```{r}
+split_list$PmtHEE-> pmthee # define the seurat obj
+
+data.input <- pmthee[["RNA"]]@data # normalized data matrix
+# For Seurat version >= “5.0.0”, get the normalized data via `seurat_object[["RNA"]]$data`
+
+Idents(pmthee) <- 'cell_type_0.7'
+labels <- Idents(pmthee)
+meta <- data.frame(labels = labels, 
+                   row.names = names(labels)) 
+
+cellchat_PmtHEE <- createCellChat(object = data.input, 
+                                  meta = meta,
+                                  group.by = "labels")
+```
+
+### 2.2- cellchat_FsEpi
+
+```{r}
+split_list$FsEpi-> fsepi
+
+data.input <- fsepi[["RNA"]]@data # normalized data matrix
+# For Seurat version >= “5.0.0”, get the normalized data via `seurat_object[["RNA"]]$data`
+
+Idents(fsepi) <- 'cell_type_0.7'
+labels <- Idents(fsepi)
+meta <- data.frame(labels = labels, 
+                   row.names = names(labels)) 
+
+cellchat_FsEpi <- createCellChat(object = data.input, 
+                                  meta = meta,
+                                  group.by = "labels")
+```
+
+### [save] cellchat-original
+
+```{r}
+save(cellchat_PmtHEE,cellchat_FsEpi,file = "R10_2_cellchat_obj_no_processed.Rdata")
+```
+
+## 3- Define the RL interaction database
+
+```{r}
+CellChatDB <- CellChatDB.human # use CellChatDB.mouse if running on mouse data
+
+# check you database CellChatDB.human
+pdf("R10_3_database_check.pdf", width=10, height=5)
+par(mfrow = c(2,3), # plot layout to a 2row x3 col grid
+    xpd=TRUE, # allowed outside the plot region
+    cex.main=1) # title magnification
+
+showDatabaseCategory(CellChatDB)
+
+dev.off()
+```
+
+![](images/Screenshot%202025-03-26%20at%2010.12.10%E2%80%AFPM.png){width="391"}
+
+```{r}
+# # use all CellChatDB for cell-cell communication analysis
+# CellChatDB.use <- CellChatDB
+
+# 
+CellChatDB.use <- subsetDB(CellChatDB, search = "Secreted Signaling", key = "annotation") # secrete autocrine/paracrine signaling interactions
+```
+
+## 4- Process the cellchat obj
+
+### 4.1- For cellchat_PmtHEE
+
+```{r}
+cellchat_PmtHEE-> cellchat
+
+# set the used database in the object
+cellchat@DB <- CellChatDB.use
+# subset the expression data of signaling genes for saving computation cost
+cellchat <- subsetData(cellchat) # This step is necessary even if using the whole database
+future::plan("multisession", workers = 4) # do parallel
+## overexpression check
+cellchat <- identifyOverExpressedGenes(cellchat)
+cellchat <- identifyOverExpressedInteractions(cellchat)
+
+cellchat <- computeCommunProb(cellchat, type = "triMean") 
+cellchat <- filterCommunication(cellchat, min.cells = 0)
+
+cellchat <- computeCommunProbPathway(cellchat)
+cellchat <- aggregateNet(cellchat) # LR pair number
+groupSize <- as.numeric(table(cellchat@idents))
+mat <- cellchat@net$weight # the probability list
+cellchat <- netAnalysis_computeCentrality(cellchat, slot.name = "netP") 
+```
+
+```{r}
+library(NMF)
+library(ggalluvial)
+
+## pattern analysis for outgoing
+selectK(cellchat, pattern = "outgoing") # if error, just re-run it.
+nPatterns =  6 # Need input
+cellchat <- identifyCommunicationPatterns(cellchat, pattern = "outgoing", k = nPatterns)
+
+selectK(cellchat, pattern = "incoming")
+nPatterns = 2 # need input
+cellchat <- identifyCommunicationPatterns(cellchat, pattern = "incoming", k = nPatterns)
+```
+
+### [Save]
+
+```{r}
+cellchat-> cellchat_PmtHEE
+save(cellchat_PmtHEE, file = "R10_cellchat_PmtHEE_processed_for_visualize.Rdata")
+```
+
+### 4.2- For cellchat_FsEpi
+
+```{r}
+cellchat_FsEpi-> cellchat
+
+# set the used database in the object
+cellchat@DB <- CellChatDB.use
+# subset the expression data of signaling genes for saving computation cost
+cellchat <- subsetData(cellchat) # This step is necessary even if using the whole database
+
+# Increase memory limit before parallelization
+options(future.globals.maxSize = 4000 * 1024^2)  # 4 GB
+
+future::plan("multisession", workers = 4) # do parallel
+## overexpression check
+cellchat <- identifyOverExpressedGenes(cellchat)
+cellchat <- identifyOverExpressedInteractions(cellchat)
+
+cellchat <- computeCommunProb(cellchat, type = "triMean") 
+cellchat <- filterCommunication(cellchat, min.cells = 0)
+
+cellchat <- computeCommunProbPathway(cellchat)
+cellchat <- aggregateNet(cellchat) # LR pair number
+groupSize <- as.numeric(table(cellchat@idents))
+mat <- cellchat@net$weight # the probability list
+cellchat <- netAnalysis_computeCentrality(cellchat, slot.name = "netP") 
+```
+
+```{r}
+library(NMF)
+library(ggalluvial)
+
+## pattern analysis for outgoing
+selectK(cellchat, pattern = "outgoing") # if error, just re-run it.
+nPatterns =  8 # Need input
+cellchat <- identifyCommunicationPatterns(cellchat, pattern = "outgoing", k = nPatterns)
+
+selectK(cellchat, pattern = "incoming")
+nPatterns = 7 # need input
+cellchat <- identifyCommunicationPatterns(cellchat, pattern = "incoming", k = nPatterns)
+```
+
+### [Save]
+
+```{r}
+cellchat-> cellchat_FsEpi
+save(cellchat_FsEpi, file = "R10_cellchat_FsEpi_processed_for_visualize.Rdata")
+```
+
+### 4.3- Merge cellchat obj
+
+```{r}
+# Combine two processed cellchat object
+object.list <- list(FsEpi = cellchat_FsEpi, 
+                    PmtHEE = cellchat_PmtHEE)
+
+cellchat <- mergeCellChat(object.list, add.names = names(object.list))
+cellchat # 610 signaling genes ; 20228 cells. 
+```
+
+### [save]
+
+```{r}
+# Users can now export the merged CellChat object and the list of the two separate objects for later use
+save(cellchat, file = "R10_4.3_cellchat_merged_processed_PmtHEE_FsEpi_cells_KC_MEL.RData")
+# load("R10_4.3_cellchat_merged_processed_PmtHEE_FsEpi_cells_KC_MEL.RData")
+
+save(object.list, file = "R10_4.3_cellchat_list_processed_PmtHEE_FsEpi_cells_KC_MEL.Rdata")
+# load("R10_4.3_cellchat_list_processed_PmtHEE_FsEpi_cells_KC_MEL.Rdata")
+```
+
+## 5- CCC Visualization
+
+### 5.1- General CCC number
+
+```{r}
+gg1 <- compareInteractions(cellchat, show.legend = F, group = c(1,2))
+gg2 <- compareInteractions(cellchat, show.legend = F, group = c(1,2), measure = "weight")
+gg1 + gg2
+
+```
+
+![](images/Screenshot%202025-03-27%20at%202.26.52%E2%80%AFAM.png){width="358"}
+
+```{r, fig.width=10,fig.height = 5, fig.wide = TRUE, fig.align = "center"}
+gg1 <- netVisual_heatmap(cellchat)
+gg2 <- netVisual_heatmap(cellchat, measure = "weight")
+gg1 + gg2
+```
+
+![](images/Screenshot%202025-03-27%20at%202.11.09%E2%80%AFAM.png){width="429"}
+
+```{r, fig.width=12,fig.height = 6, fig.wide = TRUE, fig.align = "center"}
+
+weight.max <- getMaxWeight(object.list, attribute = c("idents","count"))
+par(mfrow = c(1,2), xpd=TRUE)
+for (i in 1:length(object.list)) {
+  netVisual_circle(object.list[[i]]@net$count, weight.scale = T, label.edge= F, edge.weight.max = weight.max[2], edge.width.max = 12, title.name = paste0("Number of interactions - ", names(object.list)[i]))
+}
+```
+
+![](images/Screenshot%202025-03-27%20at%202.20.35%E2%80%AFAM.png){width="467"}
+
+```{r, fig.width=12,fig.height = 6, fig.wide = TRUE, fig.align = "center"}
+## diff for CCC interactions
+par(mfrow = c(1,2), xpd=TRUE)
+netVisual_diffInteraction(cellchat, weight.scale = T)
+netVisual_diffInteraction(cellchat, weight.scale = T, measure = "weight")
+```
+
+![](images/Screenshot%202025-03-27%20at%202.36.05%E2%80%AFAM.png)
+
+### 5.2- Merged group for CCC number
+
+```{r}
+### merge the cell states and check the general plot
+
+## check the cell types
+  unique(cellchat@idents$joint)
+  #> [1] BAS-IV  BAS-III BAS-I   MEL     
+  #> [5] SPN-II  SPN-IV  BAS-V   SPN-I   
+  #> [9] BAS-II  SPN-III GRN-II  GRN-I  
+  #> [13] GRN-III
+
+## check the celltyps order
+  levels(cellchat@idents$joint)
+  #> [1] BAS-IV  BAS-III BAS-I   MEL     
+  #> [5] SPN-II  SPN-IV  BAS-V   SPN-I   
+  #> [9] BAS-II  SPN-III GRN-II  GRN-I  
+  #> [13] GRN-III
+  #> 
+group.cellType <- c(rep("BAS", 3),"MEL",
+                    rep("SPN", 2),"BAS","SPN","BAS","SPN",
+                    rep("GRN", 3))
+
+group.cellType <- factor(group.cellType, 
+                         levels = c("BAS", "SPN", "GRN","MEL"))
+
+object.list <- lapply(object.list, function(x) {mergeInteractions(x, group.cellType)})
+
+cellchat_2 <- mergeCellChat(object.list, add.names = names(object.list))
+```
+
+```{r}
+weight.max <- getMaxWeight(object.list, slot.name = c("idents", "net", "net"), attribute = c("idents","count", "count.merged"))
+
+pdf("R10_5.2_diff_CCC_merged_cell_types.pdf", width=10, height=5)
+par(mfrow = c(1,2), xpd=TRUE)
+for (i in 1:length(object.list)) {
+  netVisual_circle(object.list[[i]]@net$count.merged, weight.scale = T, label.edge= T, edge.weight.max = weight.max[3], edge.width.max = 12, title.name = paste0("Number of interactions - ", names(object.list)[i]))
+}
+dev.off()
+```
+
+![](images/Screenshot%202025-03-27%20at%202.56.03%E2%80%AFAM.png)
+
+### 5.3- Pathway diff
+
+```{r}
+pdf("R10_5.3_CCC_merged_cell_types_diff.pdf", width=10, height=5)
+num.link <- sapply(object.list, function(x) {rowSums(x@net$count) + colSums(x@net$count)-diag(x@net$count)})
+weight.MinMax <- c(min(num.link), max(num.link)) # control the dot size in the different datasets
+gg <- list()
+for (i in 1:length(object.list)) {
+  gg[[i]] <- netAnalysis_signalingRole_scatter(object.list[[i]], title = names(object.list)[i], weight.MinMax = weight.MinMax)
+}
+patchwork::wrap_plots(plots = gg)
+dev.off()
+```
+
+![](images/Screenshot%202025-03-27%20at%203.15.08%E2%80%AFAM.png){width="469"}
+
+```{r}
+## the common pathway similarity
+
+pdf("R10_5.3_pathway_flow_diff.pdf", width=10, height=5)
+
+gg1 <- rankNet(cellchat, mode = "comparison", measure = "weight", sources.use = NULL, targets.use = NULL, stacked = T, do.stat = TRUE) 
+
+gg2 <- rankNet(cellchat, mode = "comparison", measure = "weight", sources.use = NULL, targets.use = NULL, stacked = F, do.stat = TRUE)
+
+gg1 + gg2
+
+dev.off()
+```
+
+![](images/Screenshot%202025-03-27%20at%203.31.34%E2%80%AFAM.png)
+
+```{r}
+library(ComplexHeatmap)
+i = 1
+# combining all the identified signaling pathways from different datasets 
+pathway.union <- union(object.list[[i]]@netP$pathways, object.list[[i+1]]@netP$pathways)
+
+pdf("R10_5.3_pathway_diff_heatmap_outgoing.pdf", width=10, height=5)
+
+ht1 = netAnalysis_signalingRole_heatmap(object.list[[i]], pattern = "outgoing", signaling = pathway.union, title = names(object.list)[i], width = 5, height = 6)
+ht2 = netAnalysis_signalingRole_heatmap(object.list[[i+1]], pattern = "outgoing", signaling = pathway.union, title = names(object.list)[i+1], width = 5, height = 6)
+draw(ht1 + ht2, ht_gap = unit(0.5, "cm"))
+
+dev.off()
+
+```
+
+![](images/Screenshot%202025-03-27%20at%203.36.38%E2%80%AFAM.png){width="446"}
+
+```{r}
+pdf("R10_5.3_pathway_diff_heatmap_incoming.pdf", width=10, height=5)
+
+ht1 = netAnalysis_signalingRole_heatmap(object.list[[i]], pattern = "incoming", signaling = pathway.union, title = names(object.list)[i], width = 5, height = 6, color.heatmap = "GnBu")
+
+ht2 = netAnalysis_signalingRole_heatmap(object.list[[i+1]], pattern = "incoming", signaling = pathway.union, title = names(object.list)[i+1], width = 5, height = 6, color.heatmap = "GnBu")
+draw(ht1 + ht2, ht_gap = unit(0.5, "cm"))
+
+dev.off()
+```
+
+![](images/Screenshot%202025-03-27%20at%203.45.56%E2%80%AFAM.png){width="424"}
+
+```{r}
+## overall = incoming + outcoming
+pdf("R10_5.3_pathway_diff_heatmap_all.pdf", width=10, height=5)
+ht1 = netAnalysis_signalingRole_heatmap(object.list[[i]], pattern = "all", signaling = pathway.union, title = names(object.list)[i], width = 5, height = 6, color.heatmap = "OrRd")
+
+ht2 = netAnalysis_signalingRole_heatmap(object.list[[i+1]], pattern = "all", signaling = pathway.union, title = names(object.list)[i+1], width = 5, height = 6, color.heatmap = "OrRd")
+
+draw(ht1 + ht2, ht_gap = unit(0.5, "cm"))
+dev.off()
+```
+
+![](images/Screenshot%202025-03-27%20at%203.51.31%E2%80%AFAM.png)
+
+```{r}
+## check the cell types
+  unique(cellchat@idents$joint)
+  #> [1] BAS-IV  BAS-III BAS-I   MEL     
+  #> [5] SPN-II  SPN-IV  BAS-V   SPN-I   
+  #> [9] BAS-II  SPN-III GRN-II  GRN-I  
+  #> [13] GRN-III
+  #> 
+## check the celltyps order
+  levels(cellchat@idents$joint)
+   #> [1] BAS-IV  BAS-III BAS-I   MEL     
+  #> [5] SPN-II  SPN-IV  BAS-V   SPN-I   
+  #> [9] BAS-II  SPN-III GRN-II  GRN-I  
+  #> [13] GRN-III  
+
+netVisual_bubble(cellchat, 
+                 sources.use = 4, # sender cell type [4]"MEL"
+                 targets.use = c(1:3,5:13),   # target cell types
+                 comparison = c(1, 2),  # condition 1 and 2
+                 angle.x = 45)
+```
+
+### 5.4- Single obj check
+
+```{r}
+
+## plot for FsEpi
+object.list$FsEpi-> cellchat
+
+mat <- cellchat@net$weight # the probability list
+
+pdf("R10_5.4_LR_weight_for_each_cell_type_plot.pdf", width=11, height=9)
+par(mfrow = c(3,4), xpd=TRUE)
+
+# plot, [sum probability of ALL LRs for each cell type]
+#> net -> LRs
+#> netP -> Pathways 
+groupSize <- as.numeric(table(cellchat@idents)) # cell number for each
+for (i in 1:nrow(mat)) {
+  mat2 <- matrix(0, nrow = nrow(mat), ncol = ncol(mat), dimnames = dimnames(mat))
+  mat2[i, ] <- mat[i, ]
+  netVisual_circle(mat2, vertex.weight = groupSize, weight.scale = T, edge.weight.max = max(mat), title.name = rownames(mat)[i])
+}
+
+dev.off()
+```
+
+![](images/Screenshot%202025-03-27%20at%204.09.37%E2%80%AFAM.png){width="349"}
+
+```{r}
+object.list$PmtHEE-> cellchat
+
+mat <- cellchat@net$weight # the probability list
+
+pdf("R10_5.4_LR_weight_for_each_cell_type_plot_PmtHEE.pdf", width=11, height=9)
+par(mfrow = c(3,4), xpd=TRUE)
+
+# plot, [sum probability of ALL LRs for each cell type]
+#> net -> LRs
+#> netP -> Pathways 
+groupSize <- as.numeric(table(cellchat@idents)) # cell number for each
+for (i in 1:nrow(mat)) {
+  mat2 <- matrix(0, nrow = nrow(mat), ncol = ncol(mat), dimnames = dimnames(mat))
+  mat2[i, ] <- mat[i, ]
+  netVisual_circle(mat2, vertex.weight = groupSize, weight.scale = T, edge.weight.max = max(mat), title.name = rownames(mat)[i])
+}
+
+dev.off()
+```
+
+![](images/Screenshot%202025-03-27%20at%204.12.18%E2%80%AFAM.png){width="293"}
+
+```{r}
+## CXCL pathway [LRs] in PmtHEE
+object.list$PmtHEE-> cellchat
+
+pdf("R10_5.4_LR_for CXCL_PmtHEE.pdf", width=5, height=5)
+netAnalysis_contribution(cellchat, signaling = "CXCL")
+dev.off()
+```
+
+![](images/Screenshot%202025-03-27%20at%204.21.15%E2%80%AFAM.png){width="375"}

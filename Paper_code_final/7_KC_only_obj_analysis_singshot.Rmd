@@ -1,0 +1,1175 @@
+---
+title: "Reitermaier_2021"
+author: "Yelon"
+date: "2023-03-06"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+## slingshot analysis [KC]
+
+-   R 4.4.1
+
+```{r}
+library(Seurat)  # Seurat_4.4.0
+# BiocManager::install("kstreet13/slingshot")
+library(slingshot)
+
+# BiocManager::install("DelayedMatrixStats")
+
+set.seed(805181) ## for repeatability of cluster mapping.
+```
+
+### 1- prepare the slingshot input [based on Seurat]
+
+```{r}
+## input is seurat
+load("R4_6.3_KC_only_processed.Rdata")
+KC_only_processed-> selected_kc
+
+#> Save the objects as separate matrices for input in slingshot
+dimred <- selected_kc@reductions$umap@cell.embeddings # embedding
+clustering <- selected_kc$cell_type_0.7 # the target anno
+feature_genes<-selected_kc@assays$integrated@var.features # selected HVG
+counts <- as.matrix(selected_kc@assays$RNA@counts[feature_genes, ]) # keep only HVG count matrix
+```
+
+### 2- lineage analysis
+
+```{r}
+# lineage analysis
+set.seed(1)
+lineages <- getLineages(data = dimred,
+                        clusterLabels = clustering)
+            ## start.clus = '1' , set start point
+            ## end.clus = " ", set end point.
+
+lineages@metadata$lineages-> path_kc
+  # 4 paths
+
+path_kc
+```
+
+![](images/Screenshot%202024-10-13%20at%2011.13.33%E2%80%AFPM.png)
+
+### 3- Plot the lineages
+
+```{r}
+library(RColorBrewer)
+library(ggplot2)
+pal <- c(RColorBrewer::brewer.pal(9, "Set1"), RColorBrewer::brewer.pal(8, "Set2"))
+cluster_color[clustering]
+# define the cluster colors
+cluster_color= c(
+"BAS-I"="#6BD76BCC",
+"BAS-II"="#749B58CC"  ,
+"BAS-III"="#CDDEB7CC",
+"BAS-IV"="#466983CC" ,
+"BAS-V"="#5DB1DDCC",
+"SPN-I"= "#924822CC",
+"SPN-II"= "#D58F5CCC",
+"SPN-III"= "#E4AF69CC",
+"SPN-IV"= "#F0E685CC" ,
+"GRN-I"= "#AE1F63CC",
+"GRN-II"= "#802268CC",
+"GRN-III"= "#D595A7CC")
+
+cluster_color[clustering]-> anno_clolor # define the color for cell_types
+
+# Plot the lineages
+pdf("R7_3_KC_umap_lineages_plot.pdf", width=6, height=6)
+plot(dimred[, 1:2], 
+     col = anno_clolor, 
+     cex = 0.5, 
+     pch = 16) +
+lines(SlingshotDataSet(lineages), 
+      lwd = 3, # line width
+      col = "#4B3D34")
+    ## show.constraints = TRUE
+dev.off()
+```
+
+![](images/Screenshot%202024-10-14%20at%209.53.11%E2%80%AFAM.png){width="331"}
+
+```{r}
+## plot the anno umap.
+pdf("R7_3_KC_umap_lineages_plot_anno.pdf", width=6, height=6)
+plot(dimred[, 1:2], 
+     col = anno_clolor, 
+     cex = 0.5, 
+     pch = 16)
+for (i in levels(clustering)) {
+    text(mean(dimred[clustering == i, 1]), mean(dimred[clustering == i, 2]), labels = i, font = 2)
+}
+dev.off()
+```
+
+![](images/Screenshot%202024-10-14%20at%209.58.53%E2%80%AFAM.png){width="336"}
+
+```{r}
+## make curve trajectories
+crv_kc <- getCurves(lineages) ## make curve
+
+pdf("R7_3_KC_umap_lineages_curve_plot.pdf", width=7, height=6)
+plot(dimred[, 1:2],
+     col = anno_clolor,
+     cex = 0.5, 
+     pch = 16)+
+lines(SlingshotDataSet(crv_kc), lwd = 3, col = "#4B3D34")
+dev.off()
+```
+
+![](images/Screenshot%202024-10-14%20at%2010.14.03%E2%80%AFAM.png){width="424"}
+
+### 4- Pseudotime
+
+```{r}
+library(SingleCellExperiment)
+# BiocManager::install('BiocStyle')
+# devtools::install_github("davismcc/scater")
+library(scater)
+library(patchwork)
+
+sce <- as.SingleCellExperiment(selected_kc, assay = "RNA") # SCT
+
+#> run slingshot
+sce_slingshot <- slingshot(sce, #SingleCellExperiment object
+                           reducedDim ='UMAP', # or PCA
+                           clusterLabels=sce$cell_type_0.7) #celltype
+                              #start.clus= '' # start point
+
+#> Define the colors
+    # colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+colors = colorRampPalette(c("blue","green","yellow","orange","red"))(100)
+```
+
+#### 4.1-single path test
+
+```{r}
+library(fields) # scale bar
+# BiocManager::install("fields")
+
+#> plot_1 check
+plotcol_1 <- colors[cut(sce_slingshot$slingPseudotime_1, breaks=100)]
+
+pdf("R7_4.1_KC_umap_pseudotime_1_plot.pdf", width=8, height=7)
+
+# Set up layout: 1st panel for the plot, 2nd for the color bar
+layout(matrix(c(1, 2), nrow = 1), widths = c(5, 0.5))
+
+# Adjust margins for the main plot
+par(mar = c(5, 5, 2, 6))  # Bottom, left, top, right margins
+
+plot(reducedDims(sce_slingshot)$UMAP,
+     col=plotcol_1,
+     pch=16,
+     asp=1,
+     cex=0.8)
+# add trajectory lines
+lines(SlingshotDataSet(lineages),
+      lwd=2,
+      col="#4B3D34") 
+# Add color scale bar on the right
+# Adjust margins for the color bar
+par(mar = c(12, 1, 12, 4))  # Bottom, left, top, right margins
+
+# Add color scale bar on the right
+image.plot(legend.only = TRUE, 
+           zlim = range(sce_slingshot$slingPseudotime_1, na.rm = TRUE), 
+           col = colors,
+           legend.lab = "Pseudotime",
+           legend.line = 2,
+           legend.width = 1.2,  # Adjust the width of the color bar
+           legend.cex = 0.8,    # Adjust font size of the legend
+           cex.lab = 0.3,        # Adjust font size of the label (title)
+           tcl = -0.3)   # Adjust tick length (negative values shorten ticks)
+
+dev.off()
+
+```
+
+![](images/Screenshot%202024-10-14%20at%2010.48.28%E2%80%AFAM.png){width="354"}
+
+```{r}
+# plot color baar
+color.bar <- function(lut, min, max=-min, nticks=5, 
+                      ticks=seq(min, max, len=nticks), 
+                      title='Pseudotime') {
+    scale = (length(lut)-1)/(max-min)
+    dev.new(width=1.75, height=5)
+    plot(c(0,10), c(min,max), type='n', bty='n', xaxt='n', xlab='', yaxt='n', ylab='', main=title)
+    axis(2, ticks, las=1)
+    for (i in 1:(length(lut)-1)) {
+     y = (i-1)/scale + min
+     rect(0,y,10,y+1/scale, col=lut[i], border=NA)
+    }
+}
+
+library(RColorBrewer)
+colors = colorRampPalette(c("blue","green","yellow","orange","red"))(100)
+color.bar(colors,0,100)
+
+```
+
+#### 4.2- batch for all paths
+
+```{r}
+## for loop for Pseudotime plot of paths
+paths <- paste0("path_", 1:4) # if only 4 paths
+pseudotime_list <- list(sce_slingshot$slingPseudotime_1, 
+                        sce_slingshot$slingPseudotime_2, 
+                        sce_slingshot$slingPseudotime_3, 
+                        sce_slingshot$slingPseudotime_4)
+
+pdf("R7_4_pseudotime_path_plot_umap.pdf", width=12, height=10)
+par(mfrow = c(2,2), xpd=TRUE) #> c(nrow, ncol)
+
+for(i in 1:length(pseudotime_list)){
+plotcol <- colors[cut(pseudotime_list[[i]], breaks=100)]
+plot(reducedDims(sce_slingshot)$UMAP,
+     col=plotcol,
+     pch=16,
+     asp=1,
+     cex=0.8,
+     main = paths[i])+ # titles
+lines(SlingshotDataSet(lineages),
+      lwd=2,
+      col="#4B3D34") }
+dev.off()
+```
+
+![](images/Screenshot%202024-10-14%20at%209.51.14%E2%80%AFAM.png){width="482"}
+
+### 5- save
+
+```{r}
+lineages-> kc_lineages
+sce_slingshot -> kc_sce_slingshot 
+
+save(kc_lineages, kc_sce_slingshot,file = "R7_5_slingshot_kc_obj.Rdata")
+```
+
+## \>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>
+
+## slingshot analysis [FsEpi/FibHSE/PmtHEE]
+
+```{r}
+library(Seurat)  # Seurat_4.4.0
+# BiocManager::install("kstreet13/slingshot")
+library(slingshot)
+
+# BiocManager::install("DelayedMatrixStats")
+
+set.seed(805181) ## for repeatability of cluster mapping.
+```
+
+### 1- FsEpi
+
+```{r}
+##> input is seurat list
+load("R6_5_seurat_KC_list.Rdata")
+
+kc_list$FsEpi -> selected_obj
+
+#> Save the objects as separate matrices for input in slingshot
+dimred <- selected_obj@reductions$umap@cell.embeddings # embedding
+clustering <- selected_obj$cell_type_0.7 # the target anno
+feature_genes<-selected_obj@assays$integrated@var.features # selected HVG
+counts <- as.matrix(selected_obj@assays$RNA@counts[feature_genes, ]) # keep only HVG count matrix
+```
+
+```{r}
+#> lineage analysis
+set.seed(1)
+lineages <- getLineages(data = dimred,
+                        clusterLabels = clustering)
+            ## start.clus = '1' , set start point
+            ## end.clus = " ", set end point.
+
+lineages@metadata$lineages-> path_kc
+  # 5 paths
+
+path_kc
+```
+
+![](images/Screenshot%202024-10-14%20at%2011.28.44%E2%80%AFAM.png){width="473"}
+
+```{r}
+##> 3- Plot the lineages
+library(RColorBrewer)
+library(ggplot2)
+
+# define the cluster colors
+cluster_color= c(
+"BAS-I"="#6BD76BCC",
+"BAS-II"="#749B58CC"  ,
+"BAS-III"="#CDDEB7CC",
+"BAS-IV"="#466983CC" ,
+"BAS-V"="#5DB1DDCC",
+"SPN-I"= "#924822CC",
+"SPN-II"= "#D58F5CCC",
+"SPN-III"= "#E4AF69CC",
+"SPN-IV"= "#F0E685CC" ,
+"GRN-I"= "#AE1F63CC",
+"GRN-II"= "#802268CC",
+"GRN-III"= "#D595A7CC")
+
+cluster_color[clustering]-> anno_clolor # define the color for cell_types
+
+# Plot the lineages
+pdf("R7_FsEpi_3_umap_lineages_plot.pdf", width=6, height=6)
+plot(dimred[, 1:2], 
+     col = anno_clolor, 
+     cex = 0.5, 
+     pch = 16) +
+lines(SlingshotDataSet(lineages), 
+      lwd = 3, # line width
+      col = "#4B3D34")
+    ## show.constraints = TRUE
+dev.off()
+```
+
+![](images/Screenshot%202024-10-14%20at%2011.33.43%E2%80%AFAM.png){width="321"}
+
+```{r}
+## plot the anno umap.
+pdf("R7_FsEpi_3_umap_lineages_plot_anno.pdf", width=6, height=6)
+plot(dimred[, 1:2], 
+     col = anno_clolor, 
+     cex = 0.5, 
+     pch = 16)
+for (i in levels(clustering)) {
+    text(mean(dimred[clustering == i, 1]), mean(dimred[clustering == i, 2]), labels = i, font = 2)
+}
+dev.off()
+```
+
+![](images/Screenshot%202024-10-14%20at%2011.37.09%E2%80%AFAM.png){width="405"}
+
+```{r}
+## make curve trajectories
+crv_kc <- getCurves(lineages) ## make curve
+
+pdf("R7_FsEpi_3_umap_lineages_curve_plot.pdf", width=7, height=6)
+plot(dimred[, 1:2],
+     col = anno_clolor,
+     cex = 0.5, 
+     pch = 16)+
+lines(SlingshotDataSet(crv_kc), lwd = 3, col = "#4B3D34")
+dev.off()
+```
+
+![](images/Screenshot%202024-10-14%20at%2011.39.15%E2%80%AFAM.png){width="309"}
+
+```{r}
+#> 4- Pseudotime
+library(SingleCellExperiment)
+# BiocManager::install('BiocStyle')
+# devtools::install_github("davismcc/scater")
+library(scater)
+library(patchwork)
+
+sce <- as.SingleCellExperiment(selected_obj, assay = "RNA") # SCT
+
+#> run slingshot
+sce_slingshot <- slingshot(sce, #SingleCellExperiment object
+                           reducedDim ='UMAP', # or PCA
+                           clusterLabels=sce$cell_type_0.7) #celltype
+                              #start.clus= '' # start point
+
+#> Define the colors
+    # colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+colors = colorRampPalette(c("blue","green","yellow","orange","red"))(100)
+```
+
+```{r}
+##> 4.1-single path test
+library(fields) # scale bar
+# BiocManager::install("fields")
+
+#> plot_1 check
+plotcol_1 <- colors[cut(sce_slingshot$slingPseudotime_1, breaks=100)]
+
+pdf("R7_FsEpi_4.1_umap_pseudotime_1_plot.pdf", width=8, height=7)
+
+# Set up layout: 1st panel for the plot, 2nd for the color bar
+layout(matrix(c(1, 2), nrow = 1), widths = c(5, 0.5))
+
+# Adjust margins for the main plot
+par(mar = c(5, 5, 2, 6))  # Bottom, left, top, right margins
+
+plot(reducedDims(sce_slingshot)$UMAP,
+     col=plotcol_1,
+     pch=16,
+     asp=1,
+     cex=0.8)
+# add trajectory lines
+lines(SlingshotDataSet(lineages),
+      lwd=2,
+      col="#4B3D34") 
+# Add color scale bar on the right
+# Adjust margins for the color bar
+par(mar = c(12, 1, 12, 4))  # Bottom, left, top, right margins
+
+# Add color scale bar on the right
+image.plot(legend.only = TRUE, 
+           zlim = range(sce_slingshot$slingPseudotime_1, na.rm = TRUE), 
+           col = colors,
+           legend.lab = "Pseudotime",
+           legend.line = 2,
+           legend.width = 1.2,  # Adjust the width of the color bar
+           legend.cex = 0.8,    # Adjust font size of the legend
+           cex.lab = 0.3,        # Adjust font size of the label (title)
+           tcl = -0.3)   # Adjust tick length (negative values shorten ticks)
+
+dev.off()
+
+```
+
+![](images/Screenshot%202024-10-14%20at%2011.42.15%E2%80%AFAM.png){width="379"}
+
+```{r}
+# plot color baar only, if need.
+color.bar <- function(lut, min, max=-min, nticks=5, 
+                      ticks=seq(min, max, len=nticks), 
+                      title='Pseudotime') {
+    scale = (length(lut)-1)/(max-min)
+    dev.new(width=1.75, height=5)
+    plot(c(0,10), c(min,max), type='n', bty='n', xaxt='n', xlab='', yaxt='n', ylab='', main=title)
+    axis(2, ticks, las=1)
+    for (i in 1:(length(lut)-1)) {
+     y = (i-1)/scale + min
+     rect(0,y,10,y+1/scale, col=lut[i], border=NA)
+    }
+}
+
+library(RColorBrewer)
+colors = colorRampPalette(c("blue","green","yellow","orange","red"))(100)
+color.bar(colors,0,100)
+```
+
+```{r}
+##> 4.2- batch for all paths
+## for loop for Pseudotime plot of paths
+paths <- paste0("path_", 1:5) # if only 4 paths
+pseudotime_list <- list(sce_slingshot$slingPseudotime_1, 
+                        sce_slingshot$slingPseudotime_2, 
+                        sce_slingshot$slingPseudotime_3, 
+                        sce_slingshot$slingPseudotime_4,
+                        sce_slingshot$slingPseudotime_5)
+
+pdf("R7_FsEpi_4_pseudotime_path_plot_umap.pdf", width=15, height=10)
+par(mfrow = c(2,3), xpd=TRUE) #> c(nrow, ncol)
+
+for(i in 1:length(pseudotime_list)){
+plotcol <- colors[cut(pseudotime_list[[i]], breaks=100)]
+plot(reducedDims(sce_slingshot)$UMAP,
+     col=plotcol,
+     pch=16,
+     asp=1,
+     cex=0.8,
+     main = paths[i])+ # titles
+lines(SlingshotDataSet(lineages),
+      lwd=2,
+      col="#4B3D34") }
+dev.off()
+```
+
+![](images/Screenshot%202024-10-14%20at%2011.47.11%E2%80%AFAM.png)
+
+```{r}
+##> 5- save
+lineages-> FsEpi_lineages
+sce_slingshot -> FsEpi_sce_slingshot 
+
+save(FsEpi_lineages, FsEpi_sce_slingshot,file = "R7_FsEpi_5_slingshot_obj.Rdata")
+```
+
+## \>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>
+
+### 2- FibHSE [SPN free]
+
+```{r}
+##> input is seurat list
+load("R6_5_seurat_KC_list.Rdata")
+
+kc_list$FibHSE -> selected_obj
+
+## remove SPN-I, SPN-II, SPN-III, SPN-IV.from FibHSE
+# Subset cells that are NOT in the specified cell types
+selected_id <- selected_obj@meta.data[!(selected_obj@meta.data$cell_type_0.7 %in% c("SPN-I", "SPN-II", "SPN-III", "SPN-IV")), ] # 1803 cells
+#> extract only selected cells
+new_selected_obj <- subset(selected_obj, cells=row.names(selected_id))
+
+#new obj
+new_selected_obj-> selected_obj
+
+#> Save the objects as separate matrices for input in slingshot
+dimred <- selected_obj@reductions$umap@cell.embeddings # embedding
+clustering <- selected_obj$cell_type_0.7 # the target anno
+feature_genes<-selected_obj@assays$integrated@var.features # selected HVG
+counts <- as.matrix(selected_obj@assays$RNA@counts[feature_genes, ]) # keep only HVG count matrix
+```
+
+```{r}
+#> lineage analysis
+set.seed(1)
+lineages <- getLineages(data = dimred,
+                        clusterLabels = clustering)
+            ## start.clus = '1' , set start point
+            ## end.clus = " ", set end point.
+
+lineages@metadata$lineages-> path_kc
+  # 5 paths
+
+path_kc
+```
+
+![](images/Screenshot%202024-10-14%20at%2012.20.09%E2%80%AFPM.png){width="330"}
+
+```{r}
+##> 3- Plot the lineages
+library(RColorBrewer)
+library(ggplot2)
+
+# define the cluster colors
+cluster_color= c(
+"BAS-I"="#6BD76BCC",
+"BAS-II"="#749B58CC"  ,
+"BAS-III"="#CDDEB7CC",
+"BAS-IV"="#466983CC" ,
+"BAS-V"="#5DB1DDCC",
+"SPN-I"= "#924822CC",
+"SPN-II"= "#D58F5CCC",
+"SPN-III"= "#E4AF69CC",
+"SPN-IV"= "#F0E685CC" ,
+"GRN-I"= "#AE1F63CC",
+"GRN-II"= "#802268CC",
+"GRN-III"= "#D595A7CC")
+
+cluster_color[clustering]-> anno_clolor # define the color for cell_types
+
+# Plot the lineages
+pdf("R7_FibHSE_3_umap_lineages_plot.pdf", width=6, height=6)
+plot(dimred[, 1:2], 
+     col = anno_clolor, 
+     cex = 0.5, 
+     pch = 16) +
+lines(SlingshotDataSet(lineages), 
+      lwd = 3, # line width
+      col = "#4B3D34")
+    ## show.constraints = TRUE
+dev.off()
+```
+
+![](images/Screenshot%202024-10-14%20at%2012.22.27%E2%80%AFPM.png){width="335"}
+
+```{r}
+## plot the anno umap.
+pdf("R7_FibHSE_3_umap_lineages_plot_anno.pdf", width=6, height=6)
+plot(dimred[, 1:2], 
+     col = anno_clolor, 
+     cex = 0.5, 
+     pch = 16)
+for (i in levels(clustering)) {
+    text(mean(dimred[clustering == i, 1]), mean(dimred[clustering == i, 2]), labels = i, font = 2)
+}
+dev.off()
+```
+
+![](images/Screenshot%202024-10-14%20at%2012.24.20%E2%80%AFPM.png){width="346"}
+
+```{r}
+## make curve trajectories
+crv_kc <- getCurves(lineages) ## make curve
+
+pdf("R7_FibSHE_3_umap_lineages_curve_plot.pdf", width=7, height=6)
+plot(dimred[, 1:2],
+     col = anno_clolor,
+     cex = 0.5, 
+     pch = 16)+
+lines(SlingshotDataSet(crv_kc), lwd = 3, col = "#4B3D34")
+dev.off()
+```
+
+![](images/Screenshot%202024-10-14%20at%2012.26.02%E2%80%AFPM.png){width="353"}
+
+```{r}
+#> 4- Pseudotime
+library(SingleCellExperiment)
+# BiocManager::install('BiocStyle')
+# devtools::install_github("davismcc/scater")
+library(scater)
+library(patchwork)
+
+sce <- as.SingleCellExperiment(selected_obj, assay = "RNA") # SCT
+
+#> run slingshot
+sce_slingshot <- slingshot(sce, #SingleCellExperiment object
+                           reducedDim ='UMAP', # or PCA
+                           clusterLabels=sce$cell_type_0.7) #celltype
+                              #start.clus= '' # start point
+
+#> Define the colors
+    # colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+colors = colorRampPalette(c("blue","green","yellow","orange","red"))(100)
+```
+
+```{r}
+##> 4.1-single path test
+library(fields) # scale bar
+# BiocManager::install("fields")
+
+#> plot_1 check
+plotcol_1 <- colors[cut(sce_slingshot$slingPseudotime_1, breaks=100)]
+
+pdf("R7_FibHSE_4.1_umap_pseudotime_1_plot.pdf", width=8, height=7)
+
+# Set up layout: 1st panel for the plot, 2nd for the color bar
+layout(matrix(c(1, 2), nrow = 1), widths = c(5, 0.5))
+
+# Adjust margins for the main plot
+par(mar = c(5, 5, 2, 6))  # Bottom, left, top, right margins
+
+plot(reducedDims(sce_slingshot)$UMAP,
+     col=plotcol_1,
+     pch=16,
+     asp=1,
+     cex=0.8)
+# add trajectory lines
+lines(SlingshotDataSet(lineages),
+      lwd=2,
+      col="#4B3D34") 
+# Add color scale bar on the right
+# Adjust margins for the color bar
+par(mar = c(12, 1, 12, 4))  # Bottom, left, top, right margins
+
+# Add color scale bar on the right
+image.plot(legend.only = TRUE, 
+           zlim = range(sce_slingshot$slingPseudotime_1, na.rm = TRUE), 
+           col = colors,
+           legend.lab = "Pseudotime",
+           legend.line = 2,
+           legend.width = 1.2,  # Adjust the width of the color bar
+           legend.cex = 0.8,    # Adjust font size of the legend
+           cex.lab = 0.3,        # Adjust font size of the label (title)
+           tcl = -0.3)   # Adjust tick length (negative values shorten ticks)
+
+dev.off()
+```
+
+![](images/Screenshot%202024-10-14%20at%2012.29.06%E2%80%AFPM.png){width="367"}
+
+```{r}
+# plot color baar only, if need.
+color.bar <- function(lut, min, max=-min, nticks=5, 
+                      ticks=seq(min, max, len=nticks), 
+                      title='Pseudotime') {
+    scale = (length(lut)-1)/(max-min)
+    dev.new(width=1.75, height=5)
+    plot(c(0,10), c(min,max), type='n', bty='n', xaxt='n', xlab='', yaxt='n', ylab='', main=title)
+    axis(2, ticks, las=1)
+    for (i in 1:(length(lut)-1)) {
+     y = (i-1)/scale + min
+     rect(0,y,10,y+1/scale, col=lut[i], border=NA)
+    }
+}
+
+library(RColorBrewer)
+colors = colorRampPalette(c("blue","green","yellow","orange","red"))(100)
+color.bar(colors,0,100)
+```
+
+```{r}
+##> 4.2- batch for all paths
+## for loop for Pseudotime plot of paths
+paths <- paste0("path_", 1:2) # if only 4 paths
+pseudotime_list <- list(sce_slingshot$slingPseudotime_1, 
+                        sce_slingshot$slingPseudotime_2)
+
+pdf("R7_FibHSE_4_pseudotime_path_plot_umap.pdf", width=12, height=5)
+par(mfrow = c(1,2), xpd=TRUE) #> c(nrow, ncol)
+
+for(i in 1:length(pseudotime_list)){
+plotcol <- colors[cut(pseudotime_list[[i]], breaks=100)]
+plot(reducedDims(sce_slingshot)$UMAP,
+     col=plotcol,
+     pch=16,
+     asp=1,
+     cex=0.8,
+     main = paths[i])+ # titles
+lines(SlingshotDataSet(lineages),
+      lwd=2,
+      col="#4B3D34") }
+dev.off()
+```
+
+![](images/Screenshot%202024-10-14%20at%2012.32.07%E2%80%AFPM.png){width="420"}
+
+```{r}
+##> 5- save
+lineages-> FibHSE_lineages
+sce_slingshot -> FibHSE_sce_slingshot 
+
+save(FibHSE_lineages, FibHSE_sce_slingshot ,file = "R7_FibHSE_5_slingshot_obj.Rdata")
+```
+
+## \>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>
+
+### 3- PmtHEE [BAS-I/II/III/IV free]
+
+```{r}
+##> input is seurat list
+load("R6_5_seurat_KC_list.Rdata")
+
+kc_list$PmtHEE -> selected_obj
+
+## remove SPN-I, SPN-II, SPN-III, SPN-IV.from FibHSE
+# Subset cells that are NOT in the specified cell types
+selected_id <- selected_obj@meta.data[!(selected_obj@meta.data$cell_type_0.7 %in% c("BAS-I", "BAS-II", "BAS-III", "BAS-IV")), ] # 4109 cells
+#> extract only selected cells
+new_selected_obj <- subset(selected_obj, cells=row.names(selected_id))
+
+#new obj
+new_selected_obj-> selected_obj
+
+#> Save the objects as separate matrices for input in slingshot
+dimred <- selected_obj@reductions$umap@cell.embeddings # embedding
+clustering <- selected_obj$cell_type_0.7 # the target anno
+feature_genes<-selected_obj@assays$integrated@var.features # selected HVG
+counts <- as.matrix(selected_obj@assays$RNA@counts[feature_genes, ]) # keep only HVG count matrix
+```
+
+```{r}
+#> lineage analysis
+set.seed(1)
+lineages <- getLineages(data = dimred,
+                        clusterLabels = clustering,
+                        start.clus = 'BAS-V')
+            ## start.clus = '1' , set start point
+            ## end.clus = " ", set end point.
+
+lineages@metadata$lineages-> path_kc
+  # 5 paths
+
+path_kc
+```
+
+![](images/Screenshot%202024-10-14%20at%2012.45.42%E2%80%AFPM.png){width="398"}
+
+```{r}
+##> 3- Plot the lineages
+library(RColorBrewer)
+library(ggplot2)
+
+# define the cluster colors
+cluster_color= c(
+"BAS-I"="#6BD76BCC",
+"BAS-II"="#749B58CC"  ,
+"BAS-III"="#CDDEB7CC",
+"BAS-IV"="#466983CC" ,
+"BAS-V"="#5DB1DDCC",
+"SPN-I"= "#924822CC",
+"SPN-II"= "#D58F5CCC",
+"SPN-III"= "#E4AF69CC",
+"SPN-IV"= "#F0E685CC" ,
+"GRN-I"= "#AE1F63CC",
+"GRN-II"= "#802268CC",
+"GRN-III"= "#D595A7CC")
+
+cluster_color[clustering]-> anno_clolor # define the color for cell_types
+
+# Plot the lineages
+pdf("R7_PmtHEE_3_umap_lineages_plot.pdf", width=7, height=6)
+plot(dimred[, 1:2], 
+     col = anno_clolor, 
+     cex = 0.5, 
+     pch = 16) +
+lines(SlingshotDataSet(lineages), 
+      lwd = 3, # line width
+      col = "#4B3D34")
+    ## show.constraints = TRUE
+dev.off()
+```
+
+![](images/Screenshot%202024-10-14%20at%2012.47.15%E2%80%AFPM.png){width="374"}
+
+```{r}
+## plot the anno umap.
+pdf("R7_PmtHEE_3_umap_lineages_plot_anno.pdf", width=7, height=6)
+plot(dimred[, 1:2], 
+     col = anno_clolor, 
+     cex = 0.5, 
+     pch = 16)
+for (i in levels(clustering)) {
+    text(mean(dimred[clustering == i, 1]), mean(dimred[clustering == i, 2]), labels = i, font = 2)
+}
+dev.off()
+```
+
+![](images/Screenshot%202024-10-14%20at%2012.48.47%E2%80%AFPM.png){width="314"}
+
+```{r}
+## make curve trajectories
+crv_kc <- getCurves(lineages) ## make curve
+
+pdf("R7_PmtHEE_3_umap_lineages_curve_plot.pdf", width=7, height=6)
+plot(dimred[, 1:2],
+     col = anno_clolor,
+     cex = 0.5, 
+     pch = 16)+
+lines(SlingshotDataSet(crv_kc), lwd = 3, col = "#4B3D34")
+dev.off()
+```
+
+![](images/Screenshot%202024-10-14%20at%201.38.17%E2%80%AFPM.png){width="397"}
+
+```{r}
+#> 4- Pseudotime
+library(SingleCellExperiment)
+# BiocManager::install('BiocStyle')
+# devtools::install_github("davismcc/scater")
+library(scater)
+library(patchwork)
+
+sce <- as.SingleCellExperiment(selected_obj, assay = "RNA") # SCT
+
+#> run slingshot
+sce_slingshot <- slingshot(sce, #SingleCellExperiment object
+                           reducedDim ='UMAP', # or PCA
+                           clusterLabels=sce$cell_type_0.7) #celltype
+                              #start.clus= '' # start point
+
+#> Define the colors
+    # colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+colors = colorRampPalette(c("blue","green","yellow","orange","red"))(100)
+```
+
+```{r}
+##> 4.1-single path test
+library(fields) # scale bar
+# BiocManager::install("fields")
+
+#> plot_1 check
+plotcol_1 <- colors[cut(sce_slingshot$slingPseudotime_1, breaks=100)]
+
+pdf("R7_PmtHEE_4.1_umap_pseudotime_1_plot.pdf", width=8, height=7)
+
+# Set up layout: 1st panel for the plot, 2nd for the color bar
+layout(matrix(c(1, 2), nrow = 1), widths = c(5, 0.5))
+
+# Adjust margins for the main plot
+par(mar = c(5, 5, 2, 6))  # Bottom, left, top, right margins
+
+plot(reducedDims(sce_slingshot)$UMAP,
+     col=plotcol_1,
+     pch=16,
+     asp=1,
+     cex=0.8)
+# add trajectory lines
+lines(SlingshotDataSet(lineages),
+      lwd=2,
+      col="#4B3D34") 
+# Add color scale bar on the right
+# Adjust margins for the color bar
+par(mar = c(12, 1, 12, 4))  # Bottom, left, top, right margins
+
+# Add color scale bar on the right
+image.plot(legend.only = TRUE, 
+           zlim = range(sce_slingshot$slingPseudotime_1, na.rm = TRUE), 
+           col = colors,
+           legend.lab = "Pseudotime",
+           legend.line = 2,
+           legend.width = 1.2,  # Adjust the width of the color bar
+           legend.cex = 0.8,    # Adjust font size of the legend
+           cex.lab = 0.3,        # Adjust font size of the label (title)
+           tcl = -0.3)   # Adjust tick length (negative values shorten ticks)
+
+dev.off()
+```
+
+![](images/Screenshot%202024-10-14%20at%201.41.30%E2%80%AFPM.png){width="343"}
+
+```{r}
+# plot color baar only, if need.
+color.bar <- function(lut, min, max=-min, nticks=5, 
+                      ticks=seq(min, max, len=nticks), 
+                      title='Pseudotime') {
+    scale = (length(lut)-1)/(max-min)
+    dev.new(width=1.75, height=5)
+    plot(c(0,10), c(min,max), type='n', bty='n', xaxt='n', xlab='', yaxt='n', ylab='', main=title)
+    axis(2, ticks, las=1)
+    for (i in 1:(length(lut)-1)) {
+     y = (i-1)/scale + min
+     rect(0,y,10,y+1/scale, col=lut[i], border=NA)
+    }
+}
+
+library(RColorBrewer)
+colors = colorRampPalette(c("blue","green","yellow","orange","red"))(100)
+color.bar(colors,0,100)
+```
+
+```{r}
+##> 4.2- batch for all paths
+## for loop for Pseudotime plot of paths
+paths <- paste0("path_", 1:2) # if only 4 paths
+pseudotime_list <- list(sce_slingshot$slingPseudotime_1, 
+                        sce_slingshot$slingPseudotime_2)
+
+pdf("R7_PmtHEE_4_pseudotime_path_plot_umap.pdf", width=12, height=5)
+par(mfrow = c(1,2), xpd=TRUE) #> c(nrow, ncol)
+
+for(i in 1:length(pseudotime_list)){
+plotcol <- colors[cut(pseudotime_list[[i]], breaks=100)]
+plot(reducedDims(sce_slingshot)$UMAP,
+     col=plotcol,
+     pch=16,
+     asp=1,
+     cex=0.8,
+     main = paths[i])+ # titles
+lines(SlingshotDataSet(lineages),
+      lwd=2,
+      col="#4B3D34") }
+dev.off()
+```
+
+![](images/Screenshot%202024-10-14%20at%201.48.40%E2%80%AFPM.png){width="386"}
+
+```{r}
+##> 5- save
+lineages-> PmtHEE_lineages
+sce_slingshot -> PmtHEE_sce_slingshot 
+
+save(PmtHEE_lineages, PmtHEE_sce_slingshot,file = "R7_PmtHEE_5_slingshot_obj.Rdata")
+```
+
+### 3.1-PmtHEE [BAS-I/II/III/IV free]
+
+-   set the start point as "BAS-V"
+
+```{r}
+##> input is seurat list
+load("R6_5_seurat_KC_list.Rdata")
+kc_list$PmtHEE -> selected_obj
+
+## remove SPN-I, SPN-II, SPN-III, SPN-IV.from FibHSE
+# Subset cells that are NOT in the specified cell types
+selected_id <- selected_obj@meta.data[!(selected_obj@meta.data$cell_type_0.7 %in% c("BAS-I", "BAS-II", "BAS-III", "BAS-IV")), ] # 4109 cells
+#> extract only selected cells
+new_selected_obj <- subset(selected_obj, cells=row.names(selected_id))
+
+#new obj
+new_selected_obj-> selected_obj
+
+#> Save the objects as separate matrices for input in slingshot
+dimred <- selected_obj@reductions$umap@cell.embeddings # embedding
+clustering <- selected_obj$cell_type_0.7 # the target anno
+feature_genes<-selected_obj@assays$integrated@var.features # selected HVG
+counts <- as.matrix(selected_obj@assays$RNA@counts[feature_genes, ]) # keep only HVG count matrix
+```
+
+```{r}
+#> lineage analysis
+set.seed(1)
+lineages <- getLineages(data = dimred,
+                        clusterLabels = clustering,
+                        start.clus = 'BAS-V')
+            ## end.clus = " ", set end point.
+
+lineages@metadata$lineages-> path_kc
+  # 3 paths
+
+path_kc
+```
+
+![](images/Screenshot%202024-10-15%20at%204.44.38%E2%80%AFPM.png){width="258"}
+
+```{r}
+##> 3- Plot the lineages
+library(RColorBrewer)
+library(ggplot2)
+
+# define the cluster colors
+cluster_color= c(
+"BAS-I"="#6BD76BCC",
+"BAS-II"="#749B58CC"  ,
+"BAS-III"="#CDDEB7CC",
+"BAS-IV"="#466983CC" ,
+"BAS-V"="#5DB1DDCC",
+"SPN-I"= "#924822CC",
+"SPN-II"= "#D58F5CCC",
+"SPN-III"= "#E4AF69CC",
+"SPN-IV"= "#F0E685CC" ,
+"GRN-I"= "#AE1F63CC",
+"GRN-II"= "#802268CC",
+"GRN-III"= "#D595A7CC")
+
+cluster_color[clustering]-> anno_clolor # define the color for cell_types
+
+# Plot the lineages
+pdf("R7_PmtHEE_3.1_umap_lineages_plot.pdf", width=6, height=6)
+plot(dimred[, 1:2], 
+     col = anno_clolor, 
+     cex = 0.5, 
+     pch = 16) +
+lines(SlingshotDataSet(lineages), 
+      lwd = 3, # line width
+      col = "#4B3D34")
+    ## show.constraints = TRUE
+dev.off()
+```
+
+![](images/Screenshot%202024-10-14%20at%2012.47.15%E2%80%AFPM.png){width="374"}
+
+```{r}
+## plot the anno umap.
+pdf("R7_PmtHEE_3.1_umap_lineages_plot_anno.pdf", width=6, height=6)
+plot(dimred[, 1:2], 
+     col = anno_clolor, 
+     cex = 0.5, 
+     pch = 16)
+for (i in levels(clustering)) {
+    text(mean(dimred[clustering == i, 1]), mean(dimred[clustering == i, 2]), labels = i, font = 2)
+}
+dev.off()
+```
+
+![](images/Screenshot%202024-10-14%20at%2012.48.47%E2%80%AFPM.png){width="314"}
+
+```{r}
+## make curve trajectories
+crv_kc <- getCurves(lineages) ## make curve
+
+pdf("R7_PmtHEE_3.1_umap_lineages_curve_plot.pdf", width=7, height=6)
+plot(dimred[, 1:2],
+     col = anno_clolor,
+     cex = 0.5, 
+     pch = 16)+
+lines(SlingshotDataSet(crv_kc), lwd = 3, col = "#4B3D34")
+dev.off()
+```
+
+![](images/Screenshot%202024-10-14%20at%201.38.17%E2%80%AFPM.png){width="397"}
+
+```{r}
+#> 4- Pseudotime
+library(SingleCellExperiment)
+# BiocManager::install('BiocStyle')
+# devtools::install_github("davismcc/scater")
+library(scater)
+library(patchwork)
+
+sce <- as.SingleCellExperiment(selected_obj, assay = "RNA") # SCT
+
+#> run slingshot
+sce_slingshot <- slingshot(sce, #SingleCellExperiment object
+                           reducedDim ='UMAP', # or PCA
+                           clusterLabels=sce$cell_type_0.7, #celltype
+                            start.clus= 'BAS-V') # start point
+
+#> Define the colors
+    # colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+colors = colorRampPalette(c("blue","green","yellow","orange","red"))(100)
+```
+
+```{r}
+##> 4.1-single path test
+library(fields) # scale bar
+# BiocManager::install("fields")
+
+#> plot_1 check
+plotcol_1 <- colors[cut(sce_slingshot$slingPseudotime_1, breaks=100)]
+
+pdf("R7_PmtHEE_4.1_umap_pseudotime_1_plot.pdf", width=8, height=7)
+
+# Set up layout: 1st panel for the plot, 2nd for the color bar
+layout(matrix(c(1, 2), nrow = 1), widths = c(5, 0.5))
+
+# Adjust margins for the main plot
+par(mar = c(5, 5, 2, 6))  # Bottom, left, top, right margins
+
+plot(reducedDims(sce_slingshot)$UMAP,
+     col=plotcol_1,
+     pch=16,
+     asp=1,
+     cex=0.8)
+# add trajectory lines
+lines(SlingshotDataSet(lineages),
+      lwd=2,
+      col="#4B3D34") 
+# Add color scale bar on the right
+# Adjust margins for the color bar
+par(mar = c(12, 1, 12, 4))  # Bottom, left, top, right margins
+
+# Add color scale bar on the right
+image.plot(legend.only = TRUE, 
+           zlim = range(sce_slingshot$slingPseudotime_1, na.rm = TRUE), 
+           col = colors,
+           legend.lab = "Pseudotime",
+           legend.line = 2,
+           legend.width = 1.2,  # Adjust the width of the color bar
+           legend.cex = 0.8,    # Adjust font size of the legend
+           cex.lab = 0.3,        # Adjust font size of the label (title)
+           tcl = -0.3)   # Adjust tick length (negative values shorten ticks)
+
+dev.off()
+```
+
+![](images/Screenshot%202024-10-14%20at%201.41.30%E2%80%AFPM.png){width="343"}
+
+```{r}
+# plot color baar only, if need.
+color.bar <- function(lut, min, max=-min, nticks=5, 
+                      ticks=seq(min, max, len=nticks), 
+                      title='Pseudotime') {
+    scale = (length(lut)-1)/(max-min)
+    dev.new(width=1.75, height=5)
+    plot(c(0,10), c(min,max), type='n', bty='n', xaxt='n', xlab='', yaxt='n', ylab='', main=title)
+    axis(2, ticks, las=1)
+    for (i in 1:(length(lut)-1)) {
+     y = (i-1)/scale + min
+     rect(0,y,10,y+1/scale, col=lut[i], border=NA)
+    }
+}
+
+library(RColorBrewer)
+colors = colorRampPalette(c("blue","green","yellow","orange","red"))(100)
+color.bar(colors,0,100)
+```
+
+```{r}
+##> 4.2- batch for all paths
+## for loop for Pseudotime plot of paths
+paths <- paste0("path_", 1:3) # if only 3 paths
+pseudotime_list <- list(sce_slingshot$slingPseudotime_1, 
+                        sce_slingshot$slingPseudotime_2,
+                        sce_slingshot$slingPseudotime_3)
+
+pdf("R7_PmtHEE_3.1_pseudotime_path_plot_umap.pdf", width=12, height=10)
+par(mfrow = c(2,2), xpd=TRUE) #> c(nrow, ncol)
+
+for(i in 1:length(pseudotime_list)){
+plotcol <- colors[cut(pseudotime_list[[i]], breaks=100)]
+plot(reducedDims(sce_slingshot)$UMAP,
+     col=plotcol,
+     pch=16,
+     asp=1,
+     cex=0.8,
+     main = paths[i])+ # titles
+lines(SlingshotDataSet(lineages),
+      lwd=2,
+      col="#4B3D34") }
+dev.off()
+```
+
+![](images/Screenshot%202024-10-15%20at%205.00.01%E2%80%AFPM.png){width="291"}
+
+```{r}
+##> 5- save
+lineages-> PmtHEE_lineages
+sce_slingshot -> PmtHEE_sce_slingshot 
+
+save(PmtHEE_lineages, PmtHEE_sce_slingshot,file = "R7_PmtHEE_3.1_slingshot_obj.Rdata")
+```

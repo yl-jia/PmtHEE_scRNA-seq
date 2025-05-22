@@ -1,0 +1,234 @@
+---
+title: "Reitermaier_2021"
+author: "Yelon"
+date: "2023-03-06"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+General Interpretation of AUROC Scores:
+
+The purpose of this method is to measure the similarity of cells across single cell RNA-sequencing (scRNA-seq) datasets by sampling from both random and functionally defined gene sets. MetaNeighbor works on the basis that cells of the same type should have more similar gene expression profiles than cells of different types. In other words, when we compare the expression profile between T-cells and hepatocytes for a given gene set, we should see higher correlations among all T-cells than we do between T-cells and hepatocytes.
+
+-   AUROC = 1: Perfect classifier or perfect similarity between the clusters (i.e., the two clusters are identical or highly similar).
+
+-   AUROC = 0.5: No better than random guessing (i.e., the two clusters have no similarity, they are as similar as randomly chosen clusters).
+
+-   AUROC \< 0.5: This indicates anti-similarity, which means that the two clusters are inversely related (i.e., one cluster may have high expression for genes where the other has low expression, and vice versa).
+
+-   <https://www.nature.com/articles/s41467-018-03282-0>
+
+```{r}
+library(Seurat)
+set.seed(805181) ## for repeatability of cluster mapping.
+
+load("R4_6.3_KC_only_processed.Rdata")
+KC_only_processed-> selected_kc
+```
+
+## 11- [MetaNeighbor] Install data and R functions
+
+```{r}
+library(gplots)
+library(RColorBrewer)
+```
+
+### 11.1- prepare the data for MetaNeighbor
+
+-   the SummarizedExperiment and [`SingleCellExperiment`](https://bioconductor.org/packages/release/bioc/html/SingleCellExperiment.html)`is interchangeable.`
+
+```{r}
+library(MetaNeighbor) 
+# devtools::install_git('https://github.com/gillislab/MetaNeighbor')
+library(SummarizedExperiment)
+
+library(scater)
+# install loomR from GitHub using the remotes package remotes::install_github(repo =
+# 'mojaveazure/loomR', ref = 'develop')
+library(loomR)
+library(Seurat)
+library(patchwork)
+
+kc.sce <- as.SingleCellExperiment(selected_kc,
+                                   assay="RNA") # done
+```
+
+## 12- Identify a highly variable gene set
+
+```{r}
+var_genes = variableGenes(dat = kc.sce, 
+                          exp_labels = kc.sce$study) 
+head(var_genes) # 2250 genes.
+```
+
+## 13-Run Unsupervised MetaNeighbor
+
+```{r}
+celltype_NV = MetaNeighborUS(var_genes = var_genes, 
+                             dat = kc.sce, 
+                             study_id = kc.sce$study, 
+                             cell_type = kc.sce$cell_type_0.7)
+
+# save
+save(celltype_NV, file = "R5_13_celltype_NV_metaneighbor.Rdata")
+
+load("R5_13_celltype_NV_metaneighbor.Rdata")
+```
+
+## 14-Plot results
+
+```{r}
+cols= rev(colorRampPalette(RColorBrewer::brewer.pal(11,"RdBu"))(100))
+
+breaks = seq(0, 1, length=101) 
+
+# save plot
+pdf("R5_14_metaneighbor_plot.pdf", width = 10, height = 10)
+gplots::heatmap.2(celltype_NV, 
+                 margins = c(8, 8), 
+                 keysize = 1, 
+                 key.xlab = "", 
+                 key.title = "AUROC", 
+                 trace = "none", 
+                 density.info = "none", 
+                 col = cols,
+                 breaks = breaks, 
+                 offsetRow = 0.1, 
+                 offsetCol = 0.1, 
+                 cexRow = 0.8,  # size of the row labels
+                 cexCol = 0.8, # size of the col labels
+lmat = rbind(c(4, 3), c(2, 1)),  # Layout for color key and heatmap
+                 lhei = c(0.6, 4),  # Adjust the height of the color key (first value)
+                 lwid = c(1.5, 5))  # Adjust the width of row dendrogram and heatmap
+dev.off()
+
+```
+
+![](images/Screenshot%202024-09-27%20at%209.04.29%E2%80%AFPM.png)
+
+## 15- Identify reciprocal tophits and high scoring celltype pairs
+
+```{r}
+## To find reciprocal tophits and those with AUROC>0.9
+top_hits_0.7 = topHits(cell_NV=celltype_NV, 
+                  dat=kc.sce, 
+                  study_id=kc.sce$study, 
+                  cell_type=kc.sce$cell_type_0.7, 
+                  threshold=0.7)
+
+# save the top hit result.
+library(openxlsx)
+write.xlsx(top_hits_0.7,"R5_15_top_hits_auroc_0.7.xlsx") 
+```
+
+![](images/Screenshot%202024-09-28%20at%209.06.30%E2%80%AFPM.png){width="374"}
+
+## B- similarity of big groups
+
+### 1-Add new group annotation
+
+```{r}
+#> prepare the data for similarity analysis
+library(Seurat)
+set.seed(805181) ## for repeatability of cluster mapping.
+
+load("R4_6.3_KC_only_processed.Rdata")
+KC_only_processed-> selected_kc
+
+#> add the group annotation [BAS/SPN/GRN]
+cluster_number = names(table(selected_kc@meta.data$cell_type_0.7))
+
+cluster_number
+  ## [1] "BAS-I"   "BAS-II"  "BAS-III" "BAS-IV"  "BAS-V"   "SPN-I"   "SPN-II"  "SPN-III" "SPN-IV" 
+  ## [10] "GRN-I"   "GRN-II"  "GRN-III"
+
+annotation_cluster = c(rep("BAS",5),
+                       rep("SPN",4),
+                       rep("GRN",3))
+
+cluster_anno = data.frame(cluster_number, annotation_cluster, stringsAsFactors = F)
+
+selected_kc@meta.data$group = "NA" # define 'group'
+
+for(i in 1:nrow(cluster_anno)) { 
+selected_kc@meta.data[which(selected_kc@meta.data$cell_type_0.7 == cluster_anno$cluster_number[i]),'group'] <- cluster_anno$annotation_cluster[i] 
+}
+
+table(selected_kc$group) # check new annotation
+    ##  BAS  GRN  SPN 
+    ## 8002 4615 8488 
+
+
+#> SAVE THE new object\
+selected_kc-> new_annotated_kc
+save(new_annotated_kc,file = "R5_B_new_annotated_kc.Rdata")
+```
+
+### 2- similarity calculation
+
+```{r}
+library(MetaNeighbor) 
+# devtools::install_git('https://github.com/gillislab/MetaNeighbor')
+library(SummarizedExperiment)
+
+library(scater)
+# install loomR from GitHub using the remotes package remotes::install_github(repo =
+# 'mojaveazure/loomR', ref = 'develop')
+library(loomR)
+library(Seurat)
+library(patchwork)
+
+kc.sce <- as.SingleCellExperiment(selected_kc,
+                                   assay="RNA") # done
+
+var_genes = variableGenes(dat = kc.sce, 
+                          exp_labels = kc.sce$study) 
+head(var_genes) # 2557 genes.
+
+celltype_NV = MetaNeighborUS(var_genes = var_genes, 
+                             dat = kc.sce, 
+                             study_id = kc.sce$study, 
+                             cell_type = kc.sce$group)
+
+# save
+save(celltype_NV, file = "R5_B_2_celltype_NV_metaneighbor.Rdata")
+
+load("R5_B_2_celltype_NV_metaneighbor.Rdata")
+
+library(openxlsx)
+write.xlsx(celltype_NV,rowNames=T,
+           "R5_B2_KC_AUROC_similarity.xlsx") 
+## save the data.frame "merged_COSMIC" as excel.
+```
+
+### 3- Visualization
+
+```{r}
+cols= rev(colorRampPalette(RColorBrewer::brewer.pal(11,"RdBu"))(100))
+
+breaks = seq(0, 1, length=101) 
+
+# save plot
+pdf("R5_B_3_metaneighbor_plot.pdf", width = 10, height = 10)
+gplots::heatmap.2(celltype_NV, 
+                 margins = c(8, 8), 
+                 keysize = 1, 
+                 key.xlab = "", 
+                 key.title = "AUROC", 
+                 trace = "none", 
+                 density.info = "none", 
+                 col = cols,
+                 breaks = breaks, 
+                 offsetRow = 0.1, 
+                 offsetCol = 0.1, 
+                 cexRow = 1,  # size of the row labels
+                 cexCol = 1, # size of the col labels
+lmat = rbind(c(4, 3), c(2, 1)),  # Layout for color key and heatmap
+                 lhei = c(0.6, 4),  # Adjust the height of the color key (first value)
+                 lwid = c(1.5, 5))  # Adjust the width of row dendrogram and heatmap
+dev.off()
+
+```
+
+![](images/Screenshot%202024-10-04%20at%202.24.14%E2%80%AFAM.png){width="375"}

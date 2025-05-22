@@ -1,0 +1,145 @@
+---
+title: "comaprison"
+author: "Yelon"
+date: "2025-04-14"
+output: html_document
+---
+
+```{r}
+library(CellChat)
+# install.packages("devtools")
+# devtools::install_github("immunogenomics/presto")
+# devtools::install_github("jinworks/CellChat")
+
+library(exFINDER)
+## devtools::install_github("xyang2uchicago/BioTIP"), as dependencies
+# library("devtools")
+#library(org.Mm.eg.db)
+# BiocManager::install("org.Mm.eg.db"), as dependencies
+# BiocManager::install("org.Dr.eg.db")
+## devtools::install_github("ChanghanGitHub/exFINDER")
+# devtools::install_local("exFinder_data/exFINDER.zip") 
+
+library(Seurat)
+library(ggplot2)
+library(patchwork)
+library(RColorBrewer)
+library(dplyr)
+library(pheatmap)
+library(ggraph)
+
+set.seed(805181) ## for repeatability of cluster mapping.
+```
+
+## Figure S2
+
+-   piechart for dataset composition
+
+```{r}
+## donor number in each study
+library(ggpie)
+  # BiocManager::install("ggpie")
+library(ggplot2)
+```
+
+```{r}
+## load new_all cells integrated obj with annotation
+load("R9_4.2_new_cleaned_seurat_0.7.Rdata")
+  # cleaned_seurat_0.7
+cleaned_seurat_0.7-> selected_obj
+```
+
+```{r}
+# prepare the piechart data
+selected_obj@meta.data-> piechart_data
+
+my_colors = c(FsEpi = "#01D65C", 
+               FibHSE = "#FF7878",
+               PmtHEE = "#3859FF")
+
+## cell_number in study
+p1<-ggpie(data = piechart_data, 
+      group_key = "study", 
+      count_type = "full", # "count" or "full"
+      label_info = "all",  # "count","ratio" or "all"
+      label_type = "circle",# "horizon" , "none", "circle"
+      label_split = NULL,
+      label_size = 3, 
+      label_pos = "in",
+      border_color="white",
+      border_size = 0.5)+
+      ggtitle("Study_ratio")+
+      scale_fill_manual(values = my_colors) + 
+      theme(plot.title.position = "plot")
+p1
+
+ggsave("Figure_S2_piechart_study.pdf",
+       plot = p1, 
+       width = 5, height = 5)
+```
+
+![](images/Screenshot%202025-04-19%20at%209.02.06%E2%80%AFPM.png){width="290"}
+
+```{r}
+## cell_number in samples
+p1<-ggpie(data = piechart_data, 
+      group_key = "orig.ident", 
+      count_type = "full", # "count" or "full"
+      label_info = "all",  # "count","ratio" or "all"
+      label_type = "circle",# "horizon" , "none", "circle"
+      label_split = NULL,
+      label_size = 3, 
+      label_pos = "in",
+      border_color="white",
+      border_size = 0.5)+
+      ggtitle("Samples")+
+      theme(plot.title.position = "plot")
+p1
+
+ggsave("Figure_S2_piechart_samples.pdf",
+       plot = p1, 
+       width = 5, height = 5)
+```
+
+![](images/Screenshot%202025-04-19%20at%209.31.14%E2%80%AFPM.png){width="284"}
+
+## Figure S3
+
+-   Feature plot for selected marker genes
+
+```{r}
+DefaultAssay(selected_obj) <- "RNA" 
+
+## the plotting should less than 90, else, will lose some plotting for certain genes.
+known_marker=c(
+  ## Fibroblast
+  "DCN",
+  ## Mitotic KC: [ Proliferating KC = Mitotic cells = proliferative stem cells]
+  "MKI67", 
+  "CCNB1",
+  "PCNA",
+  # Basal keratinocyte (BK) = Undifferentiated keratinocytes
+  "KRT14", "KRT5", "KRT15", 
+  "KRT10","KRT1",
+  ## Granular KC
+  "FLG", "SPINK5",
+  "KRT17",
+  "PECAM1",
+  "CD207",  # Langerhans
+  "PMEL")   # Immune cells
+```
+
+```{r}
+p1<- FeaturePlot(selected_obj,
+                 pt.size = 0.5, 
+                 reduction= "umap",
+                 features= unique(known_marker),
+                 ncol = 5) & scale_colour_gradientn(colours = colorRampPalette(c("blue","green","yellow","orange","red"))(20))
+
+p1
+
+ggsave("Figure_S3_Dimplot_marker_gene_integrated_seurat.pdf", 
+       plot = p1, width = 25, height =15)
+```
+
+![](images/Screenshot%202025-04-19%20at%2010.43.55%E2%80%AFPM.png){width="395"}

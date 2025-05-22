@@ -1,0 +1,592 @@
+---
+title: "Reitermaier_2021"
+author: "Yelon"
+date: "2023-03-06"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+-   R 4.4.1
+
+```{r}
+# BiocManager::install("Rsamtools")
+# devtools::install_github("zhanghao-njmu/SCP") # Install SCP under R4.4.1
+
+# options(reticulate.conda_binary = "/Users/yelon/miniconda3/bin/conda")
+# SCP::PrepareEnv()
+options(reticulate.conda_binary = "/Users/yelon/miniconda3/bin/conda",SCP_env_name = "SCP_env") ## need  specify the conda path first before run SCP
+library(SCP)
+
+library(ggplot2)
+library(Seurat)  # Seurat_4.4.0
+set.seed(805181) ## for repeatability of cluster mapping.
+```
+
+## 1- new_umap_plot for all cells
+
+```{r}
+##> input is seurat
+load("R3_4.1_cleaned_seurat_0.7_ct_integrated.Rdata") # cleaned_0.7_ct
+cleaned_0.7_ct-> selected_obj
+
+#> define the color
+library(scales)
+library(ggsci)
+
+mycolor<-pal_igv("default", alpha = 0.8)(22)
+show_col(mycolor)
+
+mycolor= c(
+"BAS-I"="#6BD76BCC",
+"BAS-II"="#749B58CC"  ,
+"BAS-III"="#CDDEB7CC",
+"BAS-IV"="#466983CC" ,
+"BAS-V"="#5DB1DDCC",
+"SPN-I"= "#924822CC",
+"SPN-II"= "#D58F5CCC",
+"SPN-III"= "#E4AF69CC",
+"SPN-IV"= "#F0E685CC" ,
+"GRN-I"= "#AE1F63CC",
+"GRN-II"= "#802268CC",
+"GRN-III"= "#D595A7CC",
+"Fib"= "#CE3D32CC",
+"MEL" = "#5050FFCC",
+"MC/TD"= "#7A65A5CC",
+"LC" = "#C75127CC",
+"Endo" = "#3B1B53CC",
+"Unknown1" ="darkgrey",
+"Unknown2" ="darkgrey")
+
+# reorder the cell types
+selected_obj$cell_type_0.7 <- factor(x = selected_obj$cell_type_0.7, levels = c(
+"BAS-I",
+"BAS-II",
+"BAS-III",
+"BAS-IV",
+"BAS-V",
+"SPN-I",
+"SPN-II",
+"SPN-III",
+"SPN-IV" ,
+"GRN-I",
+"GRN-II",
+"GRN-III",
+"Fib",
+"MEL",
+"MC/TD",
+"LC",
+"Endo",
+"Unknown1",
+"Unknown2"))
+```
+
+### 1.1- plot_all cells with anno
+
+```{r}
+p1<-CellDimPlot(selected_obj, 
+            palcolor = mycolor , # customize the cell color
+            label = TRUE, # Add number
+            label_insitu = TRUE, # add cell type name
+            pt.size = 0.7, # define the point size
+            group.by = "cell_type_0.7", 
+            reduction = "UMAP",
+            theme_use = "theme_blank")
+
+ggsave(p1,filename = "R9_1.1_all_cells_umap.pdf",width = 12, height =6)
+```
+
+![](images/Screenshot%202024-10-16%20at%2011.47.49%E2%80%AFAM.png){width="371"}
+
+### 1.2- split plot for study
+
+```{r}
+# define the color
+
+# reorder the study
+levels(selected_obj@meta.data$study)
+
+		# Reorder the factor levels based on your desired order
+selected_obj@meta.data$study <- factor(selected_obj@meta.data$study, 
+                                       levels = c("FsEpi", 
+                                                  "FibHSE", 
+                                                  "PmtHEE"))
+
+
+p1<-CellDimPlot(selected_obj, 
+            palcolor = mycolor, # customize the cell color
+            pt.size = 0.7, # define the point size
+            group.by = "cell_type_0.7", 
+            split.by = "study",
+            reduction = "UMAP",
+            cells.highlight = TRUE,
+            theme_use = "theme_blank",
+            legend.position = "right",
+            nrow = 1,
+            ncol = 3) +
+      theme(plot.title = element_text(size = 20))
+
+ggsave(p1,filename = "R9_1.2_Cell_type_umap_plot_split.pdf",
+       width = 15, height =5)
+```
+
+![](images/Screenshot%202024-10-16%20at%2011.56.57%E2%80%AFAM.png)
+
+## 2- new_umap for KC_only
+
+```{r}
+## input
+## input is seurat
+load("R4_6.3_KC_only_processed.Rdata")
+KC_only_processed-> selected_kc
+```
+
+```{r}
+cluster_color= c(
+"BAS-I"="#6BD76BCC",
+"BAS-II"="#749B58CC"  ,
+"BAS-III"="#CDDEB7CC",
+"BAS-IV"="#466983CC" ,
+"BAS-V"="#5DB1DDCC",
+"SPN-I"= "#924822CC",
+"SPN-II"= "#D58F5CCC",
+"SPN-III"= "#E4AF69CC",
+"SPN-IV"= "#F0E685CC" ,
+"GRN-I"= "#AE1F63CC",
+"GRN-II"= "#802268CC",
+"GRN-III"= "#D595A7CC")
+
+# reorder the study
+levels(selected_kc@meta.data$study)
+
+# Reorder the factor levels based on your desired order
+selected_kc@meta.data$study <- factor(selected_kc@meta.data$study, 
+                                       levels = c("FsEpi", 
+                                                  "FibHSE", 
+                                                  "PmtHEE"))
+
+p1<-CellDimPlot(selected_kc, 
+            palcolor = cluster_color, # customize the cell color
+            pt.size = 0.7, # define the point size
+            group.by = "cell_type_0.7", 
+            split.by = "study",
+            reduction = "UMAP",
+            cells.highlight = TRUE,
+            theme_use = "theme_blank",
+            legend.position = "none",
+            nrow = 3,
+            ncol = 1) +
+      theme(plot.title = element_text(size = 20))
+
+ggsave(p1,filename = "R9_2_KC_Cell_type_umap_plot_split.pdf",width = 5, height =15)
+```
+
+![](images/Screenshot%202024-10-16%20at%2012.03.08%E2%80%AFPM.png){width="189"}
+
+## 3- new_umap_kc_only for study
+
+```{r}
+
+## plot
+study_color = c("FsEpi" = "#0CA14A",
+                "FibHSE" = "#FF0000", 
+                "PmtHEE" = "blue")
+
+# reorder the study
+levels(selected_kc@meta.data$study)
+
+# Reorder the factor levels based on your desired order
+selected_kc@meta.data$study <- factor(selected_kc@meta.data$study, 
+                                       levels = c("FsEpi", 
+                                                  "FibHSE", 
+                                                  "PmtHEE"))
+
+p1<-CellDimPlot(selected_kc, 
+            palcolor = study_color, # customize the cell color
+            # label = TRUE, # Add number
+            # label_insitu = TRUE, # add cell type name
+            pt.size = 0.7, # define the point size
+            group.by = "study", 
+            reduction = "UMAP")
+            #theme_use = "theme_blank")
+
+ggsave(p1,filename = "R9_3_KC_study_umap_plot.pdf",width = 9, height =6)
+```
+
+![](images/Screenshot%202024-10-16%20at%2012.18.26%E2%80%AFPM.png){width="447"}
+
+## \>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>
+
+## 4- New UMAP plot for all cells for 1
+
+### 4.1 Clean again the cells
+
+```{r}
+load("R3_4.1_cleaned_seurat_0.7_ct_integrated.Rdata")
+cleaned_0.7_ct-> selected_obj
+```
+
+```{r}
+## remove the cells in basal near cluster Fib
+library(shiny)
+library(plotly)
+library(dplyr)
+library(Seurat)
+```
+
+```{r}
+## remove unwanted clusrters
+integrated_snn_res.0.7 <- unique(selected_obj$integrated_snn_res.0.7) # check clusters
+
+interested_cluster <- integrated_snn_res.0.7[!(integrated_snn_res.0.7 %in% c("13", "15"))]
+
+new_seurat <- subset(selected_obj, 
+                      integrated_snn_res.0.7 %in% interested_cluster)
+
+# recheck the cluster numner
+unique(new_seurat$integrated_snn_res.0.7)
+```
+
+```{r}
+##> further remove noisy cells
+
+##> devtools::install_github('vikkki/xSelectCells@main')
+barcodes <- xSelectCells::xSelectCells(new_seurat)
+  ## after selection , we have the local vector
+barcodes-> Cell_id_remove_1 # 
+barcodes-> Cell_id_remove_2 #
+barcodes-> Cell_id_remove_3
+barcodes-> Cell_id_remove_4
+
+remove_id<- unique(c(Cell_id_remove_1,Cell_id_remove_2,Cell_id_remove_3,Cell_id_remove_4))
+
+
+##> remove unwanted cells from obj
+setdiff(colnames(new_seurat),remove_id)-> rest_cell_bc ## 22775 cells
+
+cleaned_seurat_0.7 <- subset(new_seurat, 
+                                cells= rest_cell_bc)
+
+# check the cell types
+table(cleaned_seurat_0.7$cell_type_0.7)
+  ## BAS-I  BAS-II BAS-III  BAS-IV   BAS-V    Endo     Fib   GRN-I  GRN-II GRN-III      LC   MC/TD     MEL 
+  ## 902     563    1651    2446    2415     114     451    1168    2220    1185     111      75     987 
+  ## SPN-I  SPN-II SPN-III  SPN-IV 
+   ## 3026     653    1829    2979 
+```
+
+### 4.2 rename the HF_stem cells
+
+```{r}
+library(dplyr) 
+## "value 1" will be replaced by "value 2"
+## "value 1" ~ "Pericyte",
+cleaned_seurat_0.7@meta.data <- cleaned_seurat_0.7@meta.data %>%
+  mutate(cell_type_0.7 = case_when(
+cell_type_0.7 == "MC/TD" ~ "HF",  
+    TRUE ~ cell_type_0.7
+  ))
+
+# Check again
+table(cleaned_seurat_0.7$cell_type_0.7)
+```
+
+### [save] new_obj
+
+```{r}
+
+selected_obj@meta.data <- selected_obj@meta.data %>%
+  mutate(orig.ident = case_when(          
+orig.ident == "FibHSE20231"  ~ "FibHSE_1",         
+orig.ident == "FibHSE20232"  ~ "FibHSE_2",   
+orig.ident == "pigmented"  ~ "PmtHEE_1",
+orig.ident == "Wang20201" ~ "FsEpi_1",    
+orig.ident == "Wang20202" ~ "FsEpi_2", 
+orig.ident == "Wang20203" ~ "FsEpi_3", 
+orig.ident == "Wang20204" ~ "FsEpi_4", 
+orig.ident == "Wang20205" ~ "FsEpi_5", 
+    TRUE ~ orig.ident
+  ))
+
+selected_obj-> cleaned_seurat_0.7
+
+save(cleaned_seurat_0.7, file = "R9_4.2_new_cleaned_seurat_0.7.Rdata") # new cleaned seurat obj
+```
+
+### 4.3 New_plot all cells
+
+```{r}
+
+cleaned_seurat_0.7-> selected_obj
+
+#> define the color
+library(scales)
+library(ggsci)
+
+mycolor<-pal_igv("default", alpha = 0.8)(22)
+show_col(mycolor)
+
+mycolor= c(
+"BAS-I"="#6BD76BCC",
+"BAS-II"="#749B58CC"  ,
+"BAS-III"="#CDDEB7CC",
+"BAS-IV"="#466983CC" ,
+"BAS-V"="#5DB1DDCC",
+"SPN-I"= "#924822CC",
+"SPN-II"= "#D58F5CCC",
+"SPN-III"= "#E4AF69CC",
+"SPN-IV"= "#F0E685CC" ,
+"GRN-I"= "#AE1F63CC",
+"GRN-II"= "#802268CC",
+"GRN-III"= "#D595A7CC",
+"Fib"= "#CE3D32CC",
+"MEL" = "#5050FFCC",
+"HF"= "#7A65A5CC",
+"LC" = "#C75127CC",
+"Endo" = "#3B1B53CC")
+
+# reorder the cell types
+selected_obj$cell_type_0.7 <- factor(x = selected_obj$cell_type_0.7, levels = c(
+"BAS-I",
+"BAS-II",
+"BAS-III",
+"BAS-IV",
+"BAS-V",
+"SPN-I",
+"SPN-II",
+"SPN-III",
+"SPN-IV" ,
+"GRN-I",
+"GRN-II",
+"GRN-III",
+"Fib",
+"MEL",
+"HF",
+"LC",
+"Endo"))
+```
+
+```{r}
+p1<-CellDimPlot(selected_obj, 
+            palcolor = mycolor , # customize the cell color
+            label = TRUE, # Add number
+            label_insitu = TRUE, # add cell type name
+            pt.size = 0.7, # define the point size
+            group.by = "cell_type_0.7", 
+            reduction = "UMAP",
+            theme_use = "theme_blank")
+
+ggsave(p1,filename = "R9_4.3_new_all_cells_umap.pdf",width = 12, height =6)
+```
+
+![](images/Screenshot%202025-03-26%20at%2012.18.33%E2%80%AFAM.png){width="389"}
+
+### 4.4 New_plot study split
+
+```{r}
+# reorder the study
+levels(selected_obj@meta.data$study)
+
+		# Reorder the factor levels based on your desired order
+selected_obj@meta.data$study <- factor(selected_obj@meta.data$study, 
+                                       levels = c("FsEpi", 
+                                                  "FibHSE", 
+                                                  "PmtHEE"))
+
+
+p1<-CellDimPlot(selected_obj, 
+            palcolor = mycolor, # customize the cell color
+            pt.size = 0.7, # define the point size
+            group.by = "cell_type_0.7", 
+            split.by = "study",
+            reduction = "UMAP",
+            cells.highlight = TRUE,
+            theme_use = "theme_blank",
+            legend.position = "right",
+            nrow = 1,
+            ncol = 3) +
+      theme(plot.title = element_text(size = 20))
+
+ggsave(p1,filename = "R9_4.4_new_umap_plot_study_split.pdf",
+       width = 15, height =5)
+```
+
+![](images/Screenshot%202025-03-26%20at%2012.34.26%E2%80%AFAM.png)
+
+## 5- New VlnPlot for all cells for 1
+
+```{r}
+save(cleaned_seurat_0.7, file = "R9_4.2_new_cleaned_seurat_0.7.Rdata") # new cleaned seurat obj
+
+cleaned_seurat_0.7 -> selected_inte
+  
+#>> SET rna assay
+DefaultAssay(selected_inte) <- "RNA"
+
+Idents(selected_inte) <- 'cell_type_0.7'
+
+plot_genes <- c(
+  "CCNB1", #BAS-I
+  "MKI67", # BAS-I, BAS-II
+  "PCNA", # BAS-II, BAS-III
+  "KRT15", # BAS-IV
+  "KRT5","KRT14", # BAS-V
+  
+  "KRT1","KRT10", # SPN-I/II/III/IV
+  "SPINK5", # GRN-I/II
+  "FLG", # GRN-III
+  "DCN", # Fib
+  "PMEL", # MEL
+  "KRT17", # HF
+  "CD207", # Langerhans
+  "PECAM1") # ENDO
+
+
+## personalize the x-axis oeder
+selected_inte$cell_type_0.7 <- factor(x = selected_inte$cell_type_0.7, levels = c(
+"BAS-I",
+"BAS-II",
+"BAS-III",
+"BAS-IV",
+"BAS-V",
+"SPN-I",
+"SPN-II",
+"SPN-III",
+"SPN-IV" ,
+"GRN-I",
+"GRN-II",
+"GRN-III",
+"Fib",
+"MEL",
+"HF",
+"LC",
+"Endo"))
+
+p1 <- VlnPlot(selected_inte, 
+              features= plot_genes,
+              group.by="cell_type_0.7",
+              stack = T, 
+              sort = F, 
+              flip = T, 
+              fill.by = "ident",
+              cols= mycolor) +  # the order of color very important for legend, legend follows only the color order without name.
+theme(axis.text = element_text(size = 10)) + 
+theme(text = element_text(size = 10))+ 
+theme(legend.position = "right")+ xlab("")+
+stat_summary(fun.y = median, geom='point',size= 5, colour = "black", shape = 95)
+
+ggsave("R9_5_marker_genens_new_vlnplot.pdf", plot = p1, width = 6 , height = 5)
+```
+
+![](images/Screenshot%202025-03-26%20at%2012.42.36%E2%80%AFAM.png){width="388"}
+
+## \>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>\>
+
+## 6- New_KC_state only plot using previous R4
+
+```{r}
+## input
+## input is seurat
+load("R4_6.3_KC_only_processed.Rdata")
+KC_only_processed-> selected_kc
+```
+
+### 6.1 Add new KC State annotation
+
+```{r}
+table(selected_kc$cell_type_0.7)
+#> get the cluster number "as character"
+cluster_number = names(table(selected_kc$cell_type_0.7))
+cluster_number = cluster_number[1:12]
+
+  #> make corresponding cluster annotation.
+annotation_cluster = c(
+"BAS",
+"BAS",
+"BAS",
+"BAS",
+"BAS",
+"SPN",
+"SPN",
+"SPN",
+"SPN",
+"GRN",
+"GRN",
+"GRN")
+
+# make the corresponding annotation table with cell_cluster
+cluster_anno = data.frame(cluster_number, annotation_cluster, stringsAsFactors = F)
+
+# add empty column for meta.data
+selected_kc@meta.data$KC_states = "NA"
+
+# fill the cell types by cluster number comparison
+for(i in 1:nrow(cluster_anno)) { 
+selected_kc@meta.data[which(selected_kc@meta.data$cell_type_0.7 == cluster_anno$cluster_number[i]),'KC_states'] <- cluster_anno$annotation_cluster[i] 
+  }
+
+# check the result and performance
+table(selected_kc$KC_states)
+  # BAS  GRN  SPN 
+  # 8002 4615 8488 
+
+table(selected_kc$cell_type_0.7)
+  # BAS-I  BAS-II BAS-III  BAS-IV   BAS-V   SPN-I  SPN-II SPN-III  SPN-IV   GRN-I  GRN-II GRN-III 
+  #  902     563    1652    2446    2439    3026     653    1830    2979    1168    2220    1227 
+```
+
+### [save] KC with states
+
+```{r}
+# save
+selected_kc-> KC_only_with_states
+
+## save
+save(KC_only_with_states, 
+     file = "R9_6.1_KC_only_with_states.Rdata")
+```
+
+### 6.2- New barplot for KC state ratio
+
+```{r}
+### barplot
+library(Seurat)
+library(scRNAtoolVis)
+library(tidyverse)
+library(patchwork)
+library(viridis)
+library(Seurat)
+library(scCustomize)
+
+library(scales)
+library(ggsci)
+
+mycolor= c(
+"BAS" = "#759B59",
+"SPN"="#E3AF6A",
+"GRN"="#D595A7")
+
+
+selected_kc$KC_states <- factor(x = selected_kc$KC_states, 
+                                levels = c(
+"BAS",
+"SPN",
+"GRN"))
+
+p1<-cellRatioPlot(object = selected_kc,
+              sample.name = "study", # x-axis data
+              celltype.name = "KC_states", # filled value
+              col.width	= 0.7, #column width, default 0.7.
+              fill.col = mycolor,
+              flow.alpha = 0.25, # flow color alpha, default 0.25.
+              flow.curve = 0.5)+
+  theme(axis.text.x.bottom = element_text(angle = 45,
+                                          hjust = 1,
+                                          size = 10,
+                                          color = "black"))
+
+ggsave("R9_6.2_barplot_KC_and_Study.pdf", plot = p1, 
+       width = 5, height = 5)
+```
+
+![](images/Screenshot%202025-03-26%20at%201.54.15%E2%80%AFPM.png){width="342"}
